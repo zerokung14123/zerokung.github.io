@@ -213,17 +213,24 @@ function clearGoogleAccessToken() {
    2. AUTH HANDLERS
    ────────────────────────────────────────────────────────── */
 async function handleGoogleAuth() {
+  console.log("handleGoogleAuth invoked. googleOAuthV3:", window.googleOAuthV3);
   if (!window.googleOAuthV3) {
-    showToast('Google OAuth ยังไม่พร้อมใช้งาน', 'error');
+    alert("Google OAuth helper (googleOAuthV3) ยังไม่พร้อมใช้งานบนเบราว์เซอร์นี้");
     return;
   }
-  const isConnected = Boolean(window.googleOAuthV3.readSession?.()?.accessToken);
-  if (isConnected) {
-    await window.googleOAuthV3.logout();
-  } else {
-    await window.googleOAuthV3.login();
+  try {
+    const isConnected = Boolean(window.googleOAuthV3.readSession?.()?.accessToken);
+    console.log("Google Calendar Connection Status:", isConnected);
+    if (isConnected) {
+      await window.googleOAuthV3.logout();
+    } else {
+      await window.googleOAuthV3.login();
+    }
+    updateAuthUI();
+  } catch (error) {
+    console.error("Google Auth execution failed:", error);
+    alert("การเชื่อมต่อ Google Calendar เกิดข้อผิดพลาด: " + (error.message || error));
   }
-  updateAuthUI();
 }
 
 function signIn() {
@@ -268,7 +275,7 @@ async function syncSheets(options = {}) {
 }
 
 // Dead code removed
-function unused_syncSheets_block() {
+async function unused_syncSheets_block() {
 
   const cfg = getSettings();
   const sheetId = getSpreadsheetId(cfg.sheetId || CONFIG.SHEET_ID);
@@ -337,7 +344,6 @@ function unused_syncSheets_block() {
     if (!quiet) showToast(error, 'error');
     return { ok: false, error };
   }
-}
 }
 
 async function checkSpreadsheetExists(spreadsheetId) {

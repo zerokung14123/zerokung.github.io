@@ -24,13 +24,20 @@
       <div class="login-copy">
         <div class="login-eyebrow">Studio Workspace</div>
         <h1> Oracat Manager </h1>
-        <p>Login ด้วย Google เพื่อเข้าใช้งาน Oracat Manager บนอุปกรณ์นี้</p>
+        <p>กรุณาระบุชื่อผู้ใช้งานและรหัสผ่าน หรือเชื่อมต่อด้วยบัญชี Google เพื่อเข้าใช้งาน</p>
       </div>
-      <button class="login-google-btn" id="loginGoogleBtn" type="button">
-        <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" width="20" height="20"/>
-        <span id="loginGoogleLabel">เข้าสู่ระบบด้วย Google</span>
-      </button>
-      <div class="login-status" id="loginGateStatus">กำลังตรวจสอบสถานะการเข้าสู่ระบบ...</div>
+      <form id="loginForm" style="display: flex; flex-direction: column; gap: 14px; margin-top: 20px;">
+        <div class="form-group" style="display: flex; flex-direction: column; gap: 4px;">
+          <label style="font-size: 0.75rem; font-weight: 700; color: var(--gold-light); text-transform: uppercase; text-align: left;">Username</label>
+          <input type="text" id="loginUsername" class="form-control" placeholder="เช่น admin" required style="padding: 10px; border-radius: 6px; border: 1px solid var(--border-gold); background: #050505; color: var(--text);" />
+        </div>
+        <div class="form-group" style="display: flex; flex-direction: column; gap: 4px;">
+          <label style="font-size: 0.75rem; font-weight: 700; color: var(--gold-light); text-transform: uppercase; text-align: left;">Password</label>
+          <input type="password" id="loginPassword" class="form-control" placeholder="••••••••" required style="padding: 10px; border-radius: 6px; border: 1px solid var(--border-gold); background: #050505; color: var(--text);" />
+        </div>
+        <button type="submit" class="btn-primary" style="margin-top: 8px; padding: 12px; border-radius: 6px; font-weight: bold; width: 100%;">เข้าสู่ระบบ</button>
+      </form>
+      <div class="login-status" id="loginGateStatus" style="margin-top: 14px;">กำลังตรวจสอบสถานะการเข้าสู่ระบบ...</div>
       <div class="footer-links login-footer-links">
         <a href="index.html">เว็บไซต์</a>
         <span aria-hidden="true">•</span>
@@ -61,8 +68,14 @@
       <button class="nav-btn active" data-page="dashboard">
         <span class="nav-icon">◉</span> Dashboard
       </button>
+      <button class="nav-btn" data-page="bookings">
+        <span class="nav-icon">◪</span> คำขอจอง <span class="badge" id="bookingsPendingBadge" style="display: none; background: var(--red); color: white; font-size: 0.7rem; padding: 2px 6px; border-radius: 9999px; margin-left: 6px; font-weight: bold;"></span>
+      </button>
       <button class="nav-btn" data-page="queue">
         <span class="nav-icon">▤</span> คิวงาน
+      </button>
+      <button class="nav-btn" data-page="gallery">
+        <span class="nav-icon">▣</span> จัดการผลงาน
       </button>
       <button class="nav-btn" data-page="revenue">
         <span class="nav-icon">◈</span> รายรับ
@@ -105,7 +118,7 @@
       </div>
       <div class="header-right">
         <div class="today-date" id="todayDate"></div>
-        <button class="sync-btn" id="themeToggleBtn" type="button" title="สลับธีม สว่าง/มืด">☀️ ธีม</button>
+        <button class="sync-btn" id="themeToggleBtn" type="button" title="สลับธีม สว่าง/มืด">☼ ธีม</button>
         <button class="sync-btn" id="syncAllBtn" type="button" title="ซิงค์ทั้งหมด">↻ ซิงค์</button>
       </div>
     </header>
@@ -262,6 +275,69 @@
       </div>
     </section>
 
+    <!-- ===== BOOKINGS PAGE ===== -->
+    <section class="page" id="page-bookings">
+      <div class="queue-toolbar">
+        <div class="toolbar-left">
+          <h3>คำขอจองคิวงานจากลูกค้าหน้าเว็บ</h3>
+        </div>
+      </div>
+      <div class="table-wrapper">
+        <table class="job-table" id="bookingsTable">
+          <thead>
+            <tr>
+              <th>ลูกค้า</th>
+              <th>ข้อมูลติดต่อ</th>
+              <th>วันที่ & เวลาจอง</th>
+              <th>รายละเอียด</th>
+              <th>สถานะ</th>
+              <th style="text-align: right;">การจัดการ</th>
+            </tr>
+          </thead>
+          <tbody id="bookingsTableBody">
+            <tr><td colspan="6" class="empty-state">ยังไม่มีคำขอจองใหม่เข้ามา</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===== GALLERY PAGE ===== -->
+    <section class="page" id="page-gallery">
+      <div class="gallery-layout" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; padding: 18px 0; align-items: start;">
+        <!-- Upload Form -->
+        <div class="card" style="padding: 24px; border-radius: 12px; height: fit-content; background: var(--bg2); border: 1px solid var(--border);">
+          <h3 style="margin-bottom: 18px; color: var(--gold-light); font-size: 1.15rem; font-weight: 600;">อัปโหลดรูปภาพผลงาน</h3>
+          <form id="uploadPhotoForm" style="display: flex; flex-direction: column; gap: 16px;">
+            <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
+              <label style="font-size: 0.8rem; font-weight: 600; color: var(--text);">ชื่อรูปผลงาน</label>
+              <input type="text" id="photoTitleInput" class="form-control" placeholder="เช่น พอร์ตเทรตโทนอุ่น" required style="padding: 10px; border-radius: 6px; border: 1px solid var(--border-gold); background: #050505; color: var(--text);" />
+            </div>
+            <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
+              <label style="font-size: 0.8rem; font-weight: 600; color: var(--text);">หมวดหมู่ผลงาน</label>
+              <select id="photoCategorySelect" class="form-control" required style="padding: 10px; border-radius: 6px; border: 1px solid var(--border-gold); background: #050505; color: var(--text);">
+                <!-- populated dynamically -->
+              </select>
+            </div>
+            <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
+              <label style="font-size: 0.8rem; font-weight: 600; color: var(--text);">ไฟล์รูปภาพ (สูงสุด 8MB)</label>
+              <input type="file" id="photoFileInput" class="form-control" accept="image/*" style="padding: 8px; border-radius: 6px; border: 1px solid var(--border); background: #050505; color: var(--text);" />
+              <div style="font-size: 0.72rem; color: var(--text-dim); text-align: center; margin: 4px 0;">— หรือวางลิงก์รูปภาพด้านล่าง —</div>
+              <input type="text" id="photoUrlInput" class="form-control" placeholder="https://images.unsplash.com/..." style="padding: 10px; border-radius: 6px; border: 1px solid var(--border); background: #050505; color: var(--text);" />
+            </div>
+            <button type="submit" class="btn-primary" id="uploadPhotoBtn" style="padding: 12px; border-radius: 6px; font-weight: bold; width: 100%;">อัปโหลด</button>
+          </form>
+        </div>
+        
+        <!-- Photo List Grid -->
+        <div class="card" style="padding: 24px; border-radius: 12px; background: var(--bg2); border: 1px solid var(--border); grid-column: span 2;">
+          <h3 style="margin-bottom: 18px; color: var(--gold-light); font-size: 1.15rem; font-weight: 600;">จัดการคลังรูปภาพผลงาน</h3>
+          <div id="galleryGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; max-height: 520px; overflow-y: auto; padding-right: 6px;">
+            <!-- populated dynamically -->
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- ===== LOGIN ALERT MODAL ===== -->
     <div class="modal-overlay login-alert-overlay" id="loginAlertModal" role="dialog" aria-modal="true" aria-labelledby="loginAlertTitle">
       <div class="modal login-alert-modal">
@@ -396,61 +472,156 @@
 
     <!-- ===== SETTINGS PAGE ===== -->
     <section class="page" id="page-settings">
-      <div class="settings-layout">
-        <div class="card">
-          <div class="card-header"><h3>Google Sheets</h3></div>
-          <div class="form-group">
-            <label>Google Sheet ID</label>
-            <input type="text" class="form-control" id="settingSheetId" placeholder="ใส่ Sheet ID หรือ URL ของ Google Sheet" />
-          </div>
-          <div class="settings-hint" id="sheetSettingInfo">ยังไม่ได้ตั้งค่า Google Sheet ID</div>
-          <div class="settings-hint" id="sheetSyncInfo">ยังไม่เคย Sync ไป Google Sheets</div>
-          <div class="settings-action-row">
-            <button class="btn-primary" type="button" id="saveSheetSettingsBtn">บันทึก Google Sheet ID</button>
-            <button class="btn-secondary" type="button" id="createBookingSheetBtn">สร้าง Booking Sheet ใหม่</button>
-          </div>
-          <div class="settings-hint sheet-create-info" id="sheetCreateInfo">ผู้ใช้งานใหม่ต้องบันทึก Google Sheet ID หรือสร้าง Booking Sheet ก่อนเริ่มใช้งาน</div>
-        </div>
+      <div class="settings-container">
+        <!-- Sidebar Navigation -->
+        <aside class="settings-sidebar">
+          <button class="settings-tab-btn active" type="button" data-settings-tab="business-info">
+            <span class="tab-icon">💼</span>
+            <span class="tab-label">ข้อมูลธุรกิจ</span>
+          </button>
+          <button class="settings-tab-btn" type="button" data-settings-tab="packages-pricing">
+            <span class="tab-icon">🏷️</span>
+            <span class="tab-label">แพ็กเกจ & ราคา</span>
+          </button>
+          <button class="settings-tab-btn" type="button" data-settings-tab="job-types">
+            <span class="tab-icon">📅</span>
+            <span class="tab-label">ประเภทงาน & วันส่งงาน</span>
+          </button>
+          <button class="settings-tab-btn" type="button" data-settings-tab="google-sheets">
+            <span class="tab-icon">📊</span>
+            <span class="tab-label">Google Sheets</span>
+          </button>
+        </aside>
 
-        <div class="card">
-          <div class="card-header"><h3>ข้อมูลธุรกิจ</h3></div>
-          <div class="form-group">
-            <label>ชื่อสตูดิโอ / ช่างภาพ</label>
-            <input type="text" class="form-control" id="settingName" placeholder="Oracat Studio" />
+        <!-- Content Area -->
+        <div class="settings-content-area">
+          <!-- Pane 1: Business Info -->
+          <div class="settings-pane active" id="settings-pane-business-info">
+            <div class="card" style="margin-top: 0;">
+              <div class="card-header"><h3>ข้อมูลธุรกิจ</h3></div>
+              <div class="form-group">
+                <label>ชื่อสตูดิโอ / ช่างภาพ</label>
+                <input type="text" class="form-control" id="settingName" placeholder="Oracat Studio" />
+              </div>
+              <div class="form-group">
+                <label>เบอร์โทร</label>
+                <input type="text" class="form-control" id="settingPhone" placeholder="093-8106998" />
+              </div>
+              <div class="form-group">
+                <label>อีเมล</label>
+                <input type="email" class="form-control" id="settingEmail" placeholder="you@email.com" />
+              </div>
+              <div class="form-group">
+                <label>ลิงก์ Facebook</label>
+                <input type="text" class="form-control" id="settingFacebook" placeholder="www.facebook.com/yourpage" />
+              </div>
+              <div class="form-group">
+                <label>อัตราค่าบริการต่อชั่วโมง (บาท)</label>
+                <input type="number" class="form-control" id="settingHourRate" placeholder="1500" />
+              </div>
+              <div class="form-group">
+                <label>ข้อความต้อนรับหัวเรื่องใหญ่ (แสดงหน้าแรกลูกค้า)</label>
+                <input type="text" class="form-control" id="settingWelcomeTitle" placeholder="Oracat Studio ช่างภาพพอร์ตเทรต" />
+              </div>
+              <div class="form-group">
+                <label>ข้อความต้อนรับคำบรรยาย (แสดงหน้าแรกลูกค้า)</label>
+                <input type="text" class="form-control" id="settingWelcomeSubtitle" placeholder="บันทึกความทรงจำที่ดีที่สุดของคุณด้วยภาพถ่ายคุณภาพสูง" />
+              </div>
+              <div class="form-group">
+                <label>หัวเรื่องหน้าแพ็กเกจราคา (แสดงบนหน้าเว็บหลัก)</label>
+                <input type="text" class="form-control" id="settingPricingTitle" placeholder="แพ็กเกจ & ราคา (Pricing)" />
+              </div>
+              <div class="form-group">
+                <label>คำอธิบายหน้าแพ็กเกจราคา (แสดงบนหน้าเว็บหลัก)</label>
+                <input type="text" class="form-control" id="settingPricingSubtitle" placeholder="เลือกสรรแพ็กเกจถ่ายภาพที่ดีที่สุดสำหรับเวลาสำคัญของคุณ..." />
+              </div>
+              <div class="form-group">
+                <label>หมายเลขพร้อมเพย์ (PromptPay ID) สำหรับรับเงินมัดจำ</label>
+                <input type="text" class="form-control" id="settingPromptPay" placeholder="เช่น 0891234567 หรือเลขประจำตัวผู้เสียภาษี" />
+              </div>
+              <div class="form-group">
+                <label>Thunder Solution API Token (ยืนยันสลิปอัตโนมัติ)</label>
+                <input type="text" class="form-control" id="settingThunderToken" placeholder="วาง API Token จาก thunder.in.th (หากเว้นว่างจะทำงานในโหมด Sandbox ทดสอบเสร็จสิ้นอัตโนมัติ)" />
+              </div>
+              <div class="form-group">
+                <label>เงื่อนไขและข้อกำหนดการจอง</label>
+                <textarea class="form-control" id="settingBookingTerms" rows="3" placeholder="สอบถามรายละเอียดเพิ่มเติม Inbox ได้เลยจ้า"></textarea>
+                <div class="field-help">ถ้าไม่กรอก ระบบจะใช้ค่าเริ่มต้นนี้ในส่วนเงื่อนไขและข้อกำหนด</div>
+              </div>
+              <button class="btn-primary" type="button" id="saveBusinessInfoBtn" style="margin-top: 14px;">บันทึกข้อมูลธุรกิจ</button>
+            </div>
           </div>
-          <div class="form-group">
-            <label>เบอร์โทร</label>
-            <input type="text" class="form-control" id="settingPhone" placeholder="093-8106998" />
-          </div>
-          <div class="form-group">
-            <label>อีเมล</label>
-            <input type="email" class="form-control" id="settingEmail" placeholder="you@email.com" />
-          </div>
-          <div class="form-group">
-            <label>ลิงก์ Facebook</label>
-            <input type="text" class="form-control" id="settingFacebook" placeholder="www.facebook.com/yourpage" />
-          </div>
-          <div class="form-group">
-            <label>อัตราค่าบริการต่อชั่วโมง (บาท)</label>
-            <input type="number" class="form-control" id="settingHourRate" placeholder="1500" />
-          </div>
-          <div class="form-group">
-            <label>เงื่อนไขและข้อกำหนด</label>
-            <textarea class="form-control" id="settingBookingTerms" rows="3" placeholder="สอบถามรายละเอียดเพิ่มเติม Inbox ได้เลยจ้า"></textarea>
-            <div class="field-help">ถ้าไม่กรอก ระบบจะใช้ค่าเริ่มต้นนี้ในส่วนเงื่อนไขและข้อกำหนด</div>
-          </div>
-          <button class="btn-primary" type="button" id="saveBusinessInfoBtn">บันทึก</button>
-        </div>
 
-        <div class="card">
-          <div class="card-header"><h3>แก้ไขประเภทงาน</h3></div>
-          <div class="settings-hint">ใช้สำหรับเพิ่ม/ลดตัวเลือกใน dropdown ประเภทงาน และกำหนดจำนวนวันส่งงาน ระบบจะเตือนบน Dashboard หากยังไม่เปลี่ยนสถานะเป็น Done ภายในกำหนด</div>
-          <div class="job-type-settings-list" id="jobTypeSettingsList"></div>
-          <div class="form-group">
-            <label>เพิ่มประเภทงานใหม่</label>
-            <input type="text" class="form-control" id="newJobTypeLabel" placeholder="เช่น Pre-wedding, งานบริษัท" />
+          <!-- Pane 2: Packages & Pricing -->
+          <div class="settings-pane" id="settings-pane-packages-pricing">
+            <div class="card" style="margin-top: 0;">
+              <div class="card-header"><h3>จัดการแพ็กเกจ & ราคา (Packages & Pricing)</h3></div>
+              <div class="settings-hint">แก้ไขหรือเพิ่มแพ็กเกจราคาสำหรับแสดงบนหน้าเว็บหลักของลูกค้า</div>
+              
+              <div class="job-type-settings-list" id="packageSettingsList" style="display: flex; flex-direction: column; gap: 16px; margin-top: 14px;">
+                <!-- Rendered packages will go here -->
+              </div>
+              
+              <div style="margin-top: 24px; border-top: 1px solid var(--border); padding-top: 20px;">
+                <h4 style="font-size: 0.95rem; font-weight: 700; color: var(--gold-light); margin-bottom: 14px;">+ เพิ่มแพ็กเกจใหม่</h4>
+                <div class="form-grid" style="display: grid; grid-template-columns: 1fr; gap: 12px;">
+                  <div class="form-group">
+                    <label>ชื่อแพ็กเกจ *</label>
+                    <input type="text" class="form-control" id="newPkgName" placeholder="เช่น พอร์ตเทรตกลุ่ม" />
+                  </div>
+                  <div class="form-group">
+                    <label>ราคาเริ่มต้น (บาท) *</label>
+                    <input type="text" class="form-control" id="newPkgPrice" placeholder="เช่น 5,000" />
+                  </div>
+                  <div class="form-group">
+                    <label>ป้ายกำกับพิเศษ (Badge)</label>
+                    <input type="text" class="form-control" id="newPkgBadge" placeholder="เช่น ยอดฮิต, มาใหม่" />
+                  </div>
+                  <div class="form-group full-span">
+                    <label>คุณสมบัติแพ็กเกจ (บรรทัดละ 1 ข้อกำหนด)</label>
+                    <textarea class="form-control" id="newPkgFeatures" rows="3" placeholder="ช่างภาพ 1 ท่าน&#10;ระยะเวลา 3 ชั่วโมง&#10;รีทัชรูปพิเศษ 15 รูป"></textarea>
+                  </div>
+                </div>
+                <button class="btn-primary" type="button" id="addPackageBtn" style="margin-top: 14px;">เพิ่มแพ็กเกจ</button>
+              </div>
+            </div>
           </div>
-          <button class="btn-primary" type="button" id="addJobTypeBtn">เพิ่มประเภทงาน</button>
+
+          <!-- Pane 3: Job Types & Delivery -->
+          <div class="settings-pane" id="settings-pane-job-types">
+            <div class="card" style="margin-top: 0;">
+              <div class="card-header"><h3>แก้ไขประเภทงาน</h3></div>
+              <div class="settings-hint">ใช้สำหรับเพิ่ม/ลดตัวเลือกใน dropdown ประเภทงาน และกำหนดจำนวนวันส่งงาน ระบบจะเตือนบน Dashboard หากยังไม่เปลี่ยนสถานะเป็น Done ภายในกำหนด</div>
+              
+              <div class="job-type-settings-list" id="jobTypeSettingsList" style="margin-top: 14px;"></div>
+              
+              <div style="margin-top: 24px; border-top: 1px solid var(--border); padding-top: 20px;">
+                <div class="form-group">
+                  <label>เพิ่มประเภทงานใหม่</label>
+                  <input type="text" class="form-control" id="newJobTypeLabel" placeholder="เช่น Pre-wedding, งานบริษัท" />
+                </div>
+                <button class="btn-primary" type="button" id="addJobTypeBtn" style="margin-top: 8px;">เพิ่มประเภทงาน</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Pane 4: Google Sheets -->
+          <div class="settings-pane" id="settings-pane-google-sheets">
+            <div class="card" style="margin-top: 0;">
+              <div class="card-header"><h3>Google Sheets (ระบบสำรอง)</h3></div>
+              <div class="form-group">
+                <label>Google Sheet ID</label>
+                <input type="text" class="form-control" id="settingSheetId" placeholder="ใส่ Sheet ID หรือ URL ของ Google Sheet" />
+              </div>
+              <div class="settings-hint" id="sheetSettingInfo">ยังไม่ได้ตั้งค่า Google Sheet ID</div>
+              <div class="settings-hint" id="sheetSyncInfo">ยังไม่เคย Sync ไป Google Sheets</div>
+              <div class="settings-action-row" style="margin-top: 14px;">
+                <button class="btn-primary" type="button" id="saveSheetSettingsBtn">บันทึก Google Sheet ID</button>
+                <button class="btn-secondary" type="button" id="createBookingSheetBtn">สร้าง Booking Sheet ใหม่</button>
+              </div>
+              <div class="settings-hint sheet-create-info" id="sheetCreateInfo" style="margin-top: 10px;">ระบบใช้ Supabase เป็นฐานข้อมูลหลัก ไม่ต้องตั้งค่า Google Sheet</div>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -559,6 +730,31 @@
     </div>
   </div>
 
+  <!-- APPROVE BOOKING MODAL -->
+  <div class="modal-overlay" id="approveBookingModal" role="dialog" aria-modal="true">
+    <div class="modal" style="max-width: 420px; background: var(--bg2); border: 1px solid var(--border-gold);">
+      <div class="modal-header" style="border-bottom: 1px solid var(--border);">
+        <h3 style="color: var(--gold-light); font-weight: 600;">อนุมัติรับงาน</h3>
+        <button class="modal-close" type="button" onclick="closeApproveBookingModal()">✕</button>
+      </div>
+      <div class="modal-body" style="padding: 20px 0;">
+        <div style="margin-bottom: 16px; padding: 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 8px; font-size: 0.85rem; line-height: 1.6; color: var(--text-muted);">
+          <div><strong>ลูกค้า:</strong> <span id="approveModalClientName" style="color: var(--text);"></span></div>
+          <div><strong>ประเภทงาน:</strong> <span id="approveModalJobType" style="color: var(--text);"></span></div>
+          <div><strong>ค่ามัดจำมาตรฐาน:</strong> <span id="approveModalDefaultDeposit" style="color: var(--gold-light); font-weight: 600;"></span></div>
+        </div>
+        <div class="form-group" style="display: flex; flex-direction: column; gap: 6px;">
+          <label style="font-size: 0.82rem; font-weight: 600; color: var(--text);">ยอดเงินมัดจำที่ต้องการเก็บ (บาท)</label>
+          <input type="number" id="approveModalDepositInput" class="form-control" style="padding: 10px; border-radius: 6px; border: 1px solid var(--border-gold); background: #050505; color: var(--text);" />
+        </div>
+      </div>
+      <div class="modal-footer" style="border-top: 1px solid var(--border); padding-top: 14px;">
+        <button class="btn-ghost" type="button" onclick="closeApproveBookingModal()">ยกเลิก</button>
+        <button class="btn-primary" type="button" id="confirmApproveBookingBtn">ยืนยันการอนุมัติ</button>
+      </div>
+    </div>
+  </div>
+
 
 
   <!-- Toast -->
@@ -586,6 +782,8 @@
   <script src="js/google-api.js"></script>
   <script src="js/google-oauth-v2.js"></script>
   <script src="js/queue.js"></script>
+  <script src="js/bookings.js"></script>
+  <script src="js/gallery.js"></script>
   <script src="js/booking-document.js"></script>
   <script src="js/revenue.js"></script>
   <script src="js/tax-calculator.js"></script>

@@ -3079,3 +3079,203 @@ html[data-theme="light"] .tax-investment-controls button {
   border-color: rgba(201,147,57,0.28);
   color: var(--gold-light);
 }
+
+/* ===== CUSTOM BADGES & BOOKINGS STYLING ===== */
+.status-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border-radius: 9999px;
+  text-align: center;
+  white-space: nowrap;
+}
+.status-badge.status-pending {
+  background: rgba(216, 183, 108, 0.15);
+  color: var(--gold-light);
+  border: 1px solid rgba(216, 183, 108, 0.3);
+}
+.status-badge.status-confirmed {
+  background: rgba(116, 217, 138, 0.15);
+  color: var(--green);
+  border: 1px solid rgba(116, 217, 138, 0.3);
+}
+.status-badge.status-cancelled {
+  background: rgba(255, 107, 107, 0.15);
+  color: var(--red);
+  border: 1px solid rgba(255, 107, 107, 0.3);
+}
+
+.badge {
+  display: inline-block;
+  min-width: 18px;
+  height: 18px;
+  line-height: 18px;
+  text-align: center;
+  border-radius: 50%;
+  font-size: 0.72rem;
+  background: var(--red);
+  color: #fff;
+  font-weight: 700;
+}
+
+/* ===== GALLERY LAYOUT ===== */
+.gallery-layout {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 24px;
+}
+
+#galleryGrid {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-gold) transparent;
+}
+#galleryGrid::-webkit-scrollbar {
+  width: 6px;
+}
+#galleryGrid::-webkit-scrollbar-thumb {
+  background-color: var(--border-gold);
+  border-radius: 3px;
+}
+
+/* ===== TABBED SETTINGS PANEL STYLE ===== */
+.settings-container {
+  display: flex;
+  gap: 28px;
+  width: 100%;
+  margin-top: 20px;
+  align-items: flex-start;
+}
+
+.settings-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 260px;
+  flex-shrink: 0;
+  background: rgba(20, 20, 20, 0.45);
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: var(--shadow-soft);
+}
+
+.settings-tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 12px 18px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: 0.92rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.settings-tab-btn:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  transform: translateX(4px);
+}
+
+.settings-tab-btn.active {
+  background: rgba(216, 183, 108, 0.08);
+  color: var(--gold-light);
+  border-color: rgba(216, 183, 108, 0.25);
+  border-left: 4px solid var(--gold);
+  font-weight: 600;
+  box-shadow: inset 2px 0 8px rgba(216, 183, 108, 0.05);
+}
+
+.settings-tab-btn .tab-icon {
+  font-size: 1.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.28s ease;
+}
+
+.settings-tab-btn:hover .tab-icon {
+  transform: scale(1.15);
+}
+
+.settings-content-area {
+  flex-grow: 1;
+  min-width: 0; /* Prevents flex items from overflowing */
+}
+
+.settings-pane {
+  display: none;
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+
+.settings-pane.active {
+  display: block;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Make settings cards visually distinct and premium */
+.settings-pane .card {
+  border: 1px solid var(--border-gold);
+  background: linear-gradient(180deg, rgba(20, 18, 14, 0.95), rgba(8, 8, 7, 0.98));
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+}
+
+.settings-pane .card-header h3 {
+  color: var(--gold-light);
+  font-family: var(--font-ui);
+  font-size: 1.15rem;
+  font-weight: 700;
+  border-bottom: 2px solid rgba(216, 183, 108, 0.15);
+  padding-bottom: 8px;
+  margin-bottom: 18px;
+}
+
+/* Responsive configurations for settings layout */
+@media (max-width: 900px) {
+  .settings-container {
+    flex-direction: column;
+    gap: 20px;
+  }
+  
+  .settings-sidebar {
+    width: 100%;
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 8px;
+    padding: 10px;
+    scrollbar-width: none; /* Hide scrollbar for clean menu */
+  }
+  
+  .settings-sidebar::-webkit-scrollbar {
+    display: none;
+  }
+  
+  .settings-tab-btn {
+    white-space: nowrap;
+    width: auto;
+    padding: 10px 16px;
+    justify-content: center;
+  }
+  
+  .settings-tab-btn:hover {
+    transform: none;
+  }
+  
+  .settings-tab-btn.active {
+    border-left: 1px solid rgba(216, 183, 108, 0.25);
+    border-bottom: 3px solid var(--gold);
+  }
+}
+

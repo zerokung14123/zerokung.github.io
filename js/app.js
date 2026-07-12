@@ -25,29 +25,38 @@ document.addEventListener('DOMContentLoaded', async () => {
     btn.addEventListener('click', () => showPage(btn.dataset.page));
   });
 
-  const firebaseInitResult = await window.initFirebaseData?.();
+  // Check for existing JWT session
+  const token = localStorage.getItem('manager_token');
   const wasLoggedIn = localStorage.getItem('oracat_logged_in') === 'true';
   const lastActive = Number(localStorage.getItem('oracat_last_activity') || 0);
-  const isExpired = lastActive && (Date.now() - lastActive > 15 * 60 * 1000);
+  const SESSION_TTL = 7 * 24 * 60 * 60 * 1000;
+  const isExpired = lastActive && (Date.now() - lastActive > SESSION_TTL);
 
-  if (!window.firebaseData?.currentUser?.()) {
-    if (wasLoggedIn && !isExpired) {
-      window.setTimeout(() => {
-        if (!window.firebaseData?.currentUser?.()) {
-          updateLoginGate(null, {
-            message: 'เซสชันหมดอายุหรือโปรดเข้าสู่ระบบใหม่',
-          });
-        }
-      }, 3000);
-    } else {
-      updateLoginGate(null, {
-        message: firebaseInitResult === false
-          ? 'Firebase ยังไม่ได้ตั้งค่า จึงยังไม่สามารถเข้าสู่ระบบได้'
-          : 'กรุณาเข้าสู่ระบบด้วย Google เพื่อใช้งาน Oracat Manager',
+  if (token && wasLoggedIn && !isExpired) {
+    try {
+      const apiBase = (window.location.hostname === 'localhost' ? 'http://localhost:5000/api' : 'https://oracatapi.onrender.com/api');
+      const settingsRes = await fetch(`${apiBase}/settings`, {
+        headers: { 'Authorization': `Bearer ${token}` }
       });
+      if (settingsRes.ok) {
+        const settingsData = await settingsRes.json();
+        applyCloudSettings(settingsData);
+        const username = localStorage.getItem('oracat_username') || 'admin';
+        updateLoginGate({ email: username, displayName: username });
+      } else {
+        // Token expired or invalid
+        localStorage.removeItem('manager_token');
+        updateLoginGate(null, { message: 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่' });
+      }
+    } catch (e) {
+      updateLoginGate(null, { message: 'ไม่สามารถเชื่อมต่อ server ได้' });
     }
+  } else {
+    if (token) localStorage.removeItem('manager_token');
+    updateLoginGate(null, { message: 'กรุณาระบุชื่อผู้ใช้งานและรหัสผ่านเพื่อเข้าใช้งาน Oracat Manager' });
   }
-  loadGoogleAPIs();
+
+  loadGoogleAPIs?.();
   await window.googleOAuthV3?.init?.();
 
   // Close modal on overlay click
@@ -56,8 +65,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 });
 
+
 function setupStaticEventHandlers() {
-  bindClick('loginGoogleBtn', () => handleLoginGateAuth());
   bindClick('googleAuthBtn', () => handleGoogleAuth());
   bindClick('menuToggleBtn', () => toggleSidebar());
   bindClick('syncAllBtn', () => syncAll());
@@ -71,11 +80,28 @@ function setupStaticEventHandlers() {
   bindClick('saveSheetSettingsBtn', () => saveGoogleSheetSettings());
   bindClick('saveBusinessInfoBtn', () => saveBusinessInfo());
   bindClick('addJobTypeBtn', () => addJobTypeSetting());
+  bindClick('addPackageBtn', () => addPackageSetting());
   bindClick('saveJobBtn', () => saveJob());
   bindClick('jobDetailEditBtn', () => editCurrentJobDetail());
   bindClick('jobDetailBookingBtn', () => openCurrentJobDetailBooking());
   bindClick('downloadCurrentBookingBtn', () => downloadCurrentBookingDocument());
   bindClick('themeToggleBtn', () => toggleTheme());
+
+  // Settings Tabs switching
+  document.querySelectorAll('.settings-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const targetTab = btn.dataset.settingsTab;
+      
+      // Update active button
+      document.querySelectorAll('.settings-tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      
+      // Update active pane
+      document.querySelectorAll('.settings-pane').forEach(p => p.classList.remove('active'));
+      const targetPane = document.getElementById(`settings-pane-${targetTab}`);
+      if (targetPane) targetPane.classList.add('active');
+    });
+  });
 
   bindChange('chartYear', () => renderChart());
   bindChange('chartType', () => renderChart());
@@ -119,6 +145,51 @@ function setupStaticEventHandlers() {
   bookingPreviewModal?.addEventListener('click', event => {
     if (event.target === bookingPreviewModal) closeBookingPreviewModal();
   });
+
+  // Handle Login Form Submit
+  const loginForm = document.getElementById('loginForm');
+  if (loginForm) {
+    loginForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const username = document.getElementById('loginUsername').value.trim();
+      const password = document.getElementById('loginPassword').value;
+      
+      setLoginGateBusy(true, 'กำลังเข้าสู่ระบบ...');
+      setLoginGateStatus('กำลังตรวจสอบชื่อผู้ใช้งานและรหัสผ่าน...');
+      
+      try {
+        const apiBase = (window.location.hostname === 'localhost' ? 'http://localhost:5000/api' : 'https://oracatapi.onrender.com/api');
+        const res = await fetch(`${apiBase}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'เข้าสู่ระบบล้มเหลว');
+        
+        localStorage.setItem('manager_token', data.token);
+        localStorage.setItem('oracat_logged_in', 'true');
+        localStorage.setItem('oracat_last_activity', Date.now().toString());
+        localStorage.setItem('oracat_username', data.user?.username || username);
+
+        // Load settings from backend after login
+        const settingsRes = await fetch(`${apiBase}/settings`, {
+          headers: { 'Authorization': `Bearer ${data.token}` }
+        });
+        if (settingsRes.ok) {
+          const settingsData = await settingsRes.json();
+          applyCloudSettings(settingsData);
+        }
+
+        const user = { email: data.user?.username || username, displayName: data.user?.username || username };
+        updateLoginGate(user);
+        showToast('เข้าสู่ระบบสำเร็จ ยินดีต้อนรับ!', 'success');
+      } catch (err) {
+        updateLoginGate(null, { message: err.message || 'เข้าสู่ระบบล้มเหลว' });
+        showToast(err.message || 'เข้าสู่ระบบล้มเหลว', 'error');
+      }
+    });
+  }
 }
 
 function bindClick(id, handler) {
@@ -175,7 +246,7 @@ function updateLoginGate(user = null, options = {}) {
   document.body.classList.add('auth-locked');
   document.body.classList.remove('auth-pending', 'auth-ready');
   setLoginGateBusy(false);
-  setLoginGateStatus(options.message || 'กรุณาเข้าสู่ระบบด้วย Google เพื่อใช้งาน Oracat Manager');
+  setLoginGateStatus(options.message || 'กรุณาระบุชื่อผู้ใช้งานและรหัสผ่านเพื่อเข้าใช้งาน Oracat Manager');
 }
 
 async function handleLoginGateAuth() {
@@ -229,7 +300,7 @@ function closeTestNoticeModal() {
 
 let lastActivitySaved = 0;
 function resetActivityTimer() {
-  if (!window.firebaseData?.currentUser?.()) return;
+  if (!localStorage.getItem('manager_token')) return;
   const now = Date.now();
   if (now - lastActivitySaved > 5000) {
     localStorage.setItem('oracat_last_activity', now.toString());
@@ -238,20 +309,26 @@ function resetActivityTimer() {
 }
 
 function startInactivityCheck() {
+  // Initialize current activity timestamp on startup to prevent stale value logouts
+  localStorage.setItem('oracat_last_activity', Date.now().toString());
+
   const ACTIVITY_EVENTS = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
   ACTIVITY_EVENTS.forEach(event => {
     window.addEventListener(event, resetActivityTimer, { passive: true });
   });
 
   window.setInterval(() => {
-    if (window.firebaseData?.currentUser?.()) {
+    if (localStorage.getItem('manager_token')) {
       const lastActive = Number(localStorage.getItem('oracat_last_activity') || 0);
-      if (lastActive && (Date.now() - lastActive > 15 * 60 * 1000)) {
-        showToast?.('เซสชันหมดอายุเนื่องจากไม่มีการเคลื่อนไหวเป็นเวลา 15 นาที', 'warning');
-        window.firebaseData?.signOut?.();
+      // Extend timeout to 7 days for private photographer dashboard
+      if (lastActive && (Date.now() - lastActive > 7 * 24 * 60 * 60 * 1000)) {
+        showToast?.('เซสชันหมดอายุหลังจากไม่มีการใช้งานเป็นเวลา 7 วัน', 'warning');
+        localStorage.removeItem('manager_token');
+        localStorage.removeItem('oracat_logged_in');
+        updateLoginGate(null);
       }
     }
-  }, 10000);
+  }, 30000);
 }
 
 /* ──────────────────────────────────────────────────────────
@@ -318,7 +395,9 @@ function closeLoginAlertModal() {
    ────────────────────────────────────────────────────────── */
 const PAGE_TITLES = {
   dashboard: 'Dashboard',
+  bookings: 'คำขอจองคิวงาน',
   queue: 'คิวงาน',
+  gallery: 'จัดการคลังรูปภาพผลงาน',
   revenue: 'รายรับ',
   tax: 'โปรแกรมคำนวณภาษี',
   documents: 'เอกสาร',
@@ -355,7 +434,9 @@ function showPage(page, options = {}) {
 
   // Page-specific refresh
   if (target === 'dashboard') { updateDashboard(); }
+  if (target === 'bookings') { window.refreshBookingsTab?.(); }
   if (target === 'queue') { renderQueueTable(); }
+  if (target === 'gallery') { window.refreshGalleryTab?.(); }
   if (target === 'revenue') { renderRevenue(); }
   if (target === 'tax') { window.renderTaxCalculator?.(); }
   if (target === 'documents') { refreshBookingDocumentJobs(); }
@@ -444,6 +525,13 @@ function defaultSettings() {
     jobTypes: cloneJobTypes(DEFAULT_JOB_TYPES),
     lastSheetSync: null,
     taxPaidReminders: [],
+    welcome_title: '',
+    welcome_subtitle: '',
+    pricing_title: '',
+    pricing_subtitle: '',
+    promptpay_id: '',
+    thunder_token: '',
+    packages: '[]',
   };
 }
 
@@ -465,6 +553,15 @@ function setSettingsState(settings = {}, options = {}) {
   appSettingsState.jobTypes = normalizeJobTypeSettings(next.jobTypes);
   appSettingsState.lastSheetSync = next.lastSheetSync || null;
   appSettingsState.taxPaidReminders = normalizeTaxPaidReminders(next.taxPaidReminders);
+  
+  // Custom API integrations state mapping
+  appSettingsState.welcome_title = String(next.welcome_title || '');
+  appSettingsState.welcome_subtitle = String(next.welcome_subtitle || '');
+  appSettingsState.pricing_title = String(next.pricing_title || '');
+  appSettingsState.pricing_subtitle = String(next.pricing_subtitle || '');
+  appSettingsState.promptpay_id = String(next.promptpay_id || '');
+  appSettingsState.thunder_token = String(next.thunder_token || '');
+  appSettingsState.packages = String(next.packages || '[]');
 
   syncJobTypeLabels(appSettingsState.jobTypes);
   CONFIG.SHEET_ID = appSettingsState.sheetId;
@@ -552,50 +649,27 @@ function configuredSheetId() {
 }
 
 function isSheetSetupRequired() {
-  return Boolean(window.firebaseData?.isReady?.() && !configuredSheetId());
+  return false; // Google Sheets not required with Supabase backend
 }
 
 function updateSheetSetupUI() {
-  const isLoggedIn = Boolean(window.firebaseData?.isReady?.());
-  const sheetId = configuredSheetId();
-  const requiresSetup = Boolean(isLoggedIn && !sheetId);
+  const requiresSetup = false; // Google Sheets not required with Supabase backend
   document.body?.classList.toggle('sheet-required', requiresSetup);
 
   document.querySelectorAll('.nav-btn').forEach(button => {
-    const locked = requiresSetup && button.dataset.page !== 'settings';
-    button.disabled = locked;
-    button.title = locked ? 'ตั้งค่า Google Sheet ก่อนเริ่มใช้งาน' : '';
+    button.disabled = false;
+    button.title = '';
   });
 
   const createButton = document.getElementById('createBookingSheetBtn');
   const createInfo = document.getElementById('sheetCreateInfo');
   if (!createButton) return;
 
-  const isBusy = createButton.dataset.busy === '1';
-  const canCreate = isLoggedIn && !isBusy && (!sheetId || sheetAccessState.status === 'missing');
-  createButton.disabled = !canCreate;
-  createButton.textContent = isBusy
-    ? 'กำลังสร้าง Booking Sheet...'
-    : sheetId && sheetAccessState.status !== 'missing'
-      ? 'มี Booking Sheet แล้ว'
-      : 'สร้าง Booking Sheet ใหม่';
+  createButton.disabled = true;
+  createButton.textContent = 'ไม่ใช้งาน Google Sheets';
 
   if (createInfo) {
-    if (!isLoggedIn) {
-      createInfo.textContent = 'Login ก่อนเพื่อสร้างหรือบันทึก Google Sheet';
-    } else if (!sheetId) {
-      createInfo.textContent = 'ผู้ใช้งานใหม่ต้องบันทึก Google Sheet ID หรือสร้าง Booking Sheet ก่อนเริ่มใช้งาน';
-    } else if (sheetAccessState.status === 'missing') {
-      createInfo.textContent = 'ตรวจไม่พบ Sheet ID เดิม สามารถสร้าง Booking Sheet ใหม่ได้';
-    } else if (sheetAccessState.status === 'checking') {
-      createInfo.textContent = 'กำลังตรวจสอบ Google Sheet ID เดิม...';
-    } else if (sheetAccessState.status === 'exists') {
-      createInfo.textContent = `พบ Google Sheet แล้ว: ${sheetAccessState.message || compactId(sheetId)}`;
-    } else if (sheetAccessState.status === 'unverified') {
-      createInfo.textContent = sheetAccessState.message || 'มี Sheet ID แล้ว เชื่อมต่อ Google เพื่อให้ระบบตรวจสอบสิทธิ์';
-    } else {
-      createInfo.textContent = 'มี Google Sheet ID แล้ว ระบบจะปลดล็อกปุ่มสร้างใหม่เมื่อ ID เดิมตรวจไม่พบ';
-    }
+    createInfo.textContent = 'ระบบใช้ Supabase เป็นฐานข้อมูลหลัก ไม่ต้องตั้งค่า Google Sheet';
   }
 }
 
@@ -684,10 +758,183 @@ function loadSettingsForm() {
   if (bookingTermsInput) bookingTermsInput.value = s.bookingTerms || '';
   if (hourRateInput) hourRateInput.value = s.hourRate || '';
   if (sheetIdInput) sheetIdInput.value = s.sheetId || '';
+
+  // Expose additional settings
+  const wtInput = document.getElementById('settingWelcomeTitle');
+  if (wtInput) wtInput.value = s.welcome_title || '';
+  const wsInput = document.getElementById('settingWelcomeSubtitle');
+  if (wsInput) wsInput.value = s.welcome_subtitle || '';
+  const prTitleInput = document.getElementById('settingPricingTitle');
+  if (prTitleInput) prTitleInput.value = s.pricing_title || '';
+  const prSubInput = document.getElementById('settingPricingSubtitle');
+  if (prSubInput) prSubInput.value = s.pricing_subtitle || '';
+  const ppInput = document.getElementById('settingPromptPay');
+  if (ppInput) ppInput.value = s.promptpay_id || '';
+  const ttInput = document.getElementById('settingThunderToken');
+  if (ttInput) ttInput.value = s.thunder_token || '';
+
   renderJobTypeSettings();
   renderJobTypeSelect();
   updateSheetSyncInfo();
   scheduleSheetAccessCheck();
+  renderPackageSettings();
+}
+
+/* ──────────────────────────────────────────────────────────
+   PACKAGES & PRICING
+   ────────────────────────────────────────────────────────── */
+function getPackagesList() {
+  try {
+    return JSON.parse(appSettingsState.packages || '[]');
+  } catch (e) {
+    return [];
+  }
+}
+
+function renderPackageSettings() {
+  const list = document.getElementById('packageSettingsList');
+  if (!list) return;
+
+  const packages = getPackagesList();
+  if (packages.length === 0) {
+    list.innerHTML = '<div class="settings-hint">ไม่มีแพ็กเกจราคาขณะนี้</div>';
+    return;
+  }
+
+  list.innerHTML = packages.map(pkg => `
+    <div class="card" style="margin-bottom: 0; padding: 14px; background: rgba(5,5,5,0.4); border: 1px solid var(--border);">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 12px;">
+        <span style="font-weight: bold; color: var(--gold-light); font-size: 0.85rem;">แพ็กเกจ: ${appEscHtml(pkg.name)}</span>
+        <button class="action-btn del" type="button" data-pkg-action="delete" data-pkg-id="${appEscAttr(pkg.id)}" style="padding: 4px 8px; font-size: 0.75rem;">ลบ</button>
+      </div>
+      <div class="form-grid" style="display: grid; grid-template-columns: 1fr; gap: 10px;">
+        <div class="form-group">
+          <label>ชื่อแพ็กเกจ</label>
+          <input type="text" class="form-control" data-pkg-field="name" data-pkg-id="${appEscAttr(pkg.id)}" value="${appEscAttr(pkg.name)}" style="font-size: 0.8rem; padding: 8px;" />
+        </div>
+        <div class="form-group">
+          <label>ราคาเริ่มต้น (บาท)</label>
+          <input type="text" class="form-control" data-pkg-field="price" data-pkg-id="${appEscAttr(pkg.id)}" value="${appEscAttr(pkg.price)}" style="font-size: 0.8rem; padding: 8px;" />
+        </div>
+        <div class="form-group">
+          <label>ป้ายกำกับพิเศษ (Badge)</label>
+          <input type="text" class="form-control" data-pkg-field="badge" data-pkg-id="${appEscAttr(pkg.id)}" value="${appEscAttr(pkg.badge || '')}" style="font-size: 0.8rem; padding: 8px;" />
+        </div>
+        <div class="form-group full-span">
+          <label>รายละเอียด / คุณสมบัติ (บรรทัดละ 1 ข้อ)</label>
+          <textarea class="form-control" data-pkg-field="features" data-pkg-id="${appEscAttr(pkg.id)}" rows="3" style="font-size: 0.8rem; padding: 8px; font-family: monospace;">${appEscHtml((pkg.features || []).join('\n'))}</textarea>
+        </div>
+      </div>
+      <button class="btn-primary" type="button" data-pkg-action="save" data-pkg-id="${appEscAttr(pkg.id)}" style="margin-top: 10px; padding: 6px 12px; font-size: 0.8rem; width: auto; align-self: flex-end;">บันทึกแพ็กเกจนี้</button>
+    </div>
+  `).join('');
+
+  bindPackageActions(list);
+}
+
+function bindPackageActions(list) {
+  list.querySelectorAll('[data-pkg-action]').forEach(button => {
+    button.addEventListener('click', async () => {
+      const id = button.dataset.pkgId;
+      const action = button.dataset.pkgAction;
+      const currentPkgs = getPackagesList();
+
+      if (action === 'delete') {
+        if (!confirm('ต้องการลบแพ็กเกจนี้ใช่หรือไม่?')) return;
+        const updated = currentPkgs.filter(p => p.id !== id);
+        await savePackagesState(updated, 'ลบแพ็กเกจเรียบร้อยแล้ว ✓');
+      } else if (action === 'save') {
+        const nameVal = list.querySelector(`[data-pkg-field="name"][data-pkg-id="${id}"]`).value.trim();
+        const priceVal = list.querySelector(`[data-pkg-field="price"][data-pkg-id="${id}"]`).value.trim();
+        const badgeVal = list.querySelector(`[data-pkg-field="badge"][data-pkg-id="${id}"]`).value.trim();
+        const featuresVal = list.querySelector(`[data-pkg-field="features"][data-pkg-id="${id}"]`).value.trim();
+
+        if (!nameVal) {
+          showToast('ชื่อแพ็กเกจห้ามว่าง', 'error');
+          return;
+        }
+
+        const updated = currentPkgs.map(p => {
+          if (p.id === id) {
+            return {
+              id: p.id,
+              name: nameVal,
+              price: priceVal,
+              badge: badgeVal,
+              features: featuresVal.split('\n').map(f => f.trim()).filter(Boolean)
+            };
+          }
+          return p;
+        });
+
+        await savePackagesState(updated, 'บันทึกแก้ไขแพ็กเกจเรียบร้อย ✓');
+      }
+    });
+  });
+}
+
+async function addPackageSetting() {
+  const nameEl = document.getElementById('newPkgName');
+  const priceEl = document.getElementById('newPkgPrice');
+  const badgeEl = document.getElementById('newPkgBadge');
+  const featuresEl = document.getElementById('newPkgFeatures');
+
+  const name = nameEl?.value.trim();
+  const price = priceEl?.value.trim() || '0';
+  const badge = badgeEl?.value.trim() || '';
+  const featuresStr = featuresEl?.value.trim() || '';
+
+  if (!name) {
+    showToast('กรุณากรอกชื่อแพ็กเกจ', 'error');
+    return;
+  }
+
+  const currentPkgs = getPackagesList();
+  const newId = 'pkg_' + Date.now();
+  const features = featuresStr.split('\n').map(f => f.trim()).filter(Boolean);
+
+  const updated = [...currentPkgs, { id: newId, name, price, badge, features }];
+
+  const success = await savePackagesState(updated, 'เพิ่มแพ็กเกจเรียบร้อย ✓');
+  if (success) {
+    if (nameEl) nameEl.value = '';
+    if (priceEl) priceEl.value = '';
+    if (badgeEl) badgeEl.value = '';
+    if (featuresEl) featuresEl.value = '';
+  }
+}
+
+async function savePackagesState(updatedPackages, successMessage) {
+  const token = localStorage.getItem('manager_token');
+  if (!token) {
+    showToast('กรุณา Login ก่อนบันทึกการตั้งค่า', 'error');
+    return false;
+  }
+
+  const previous = appSettingsState.packages;
+  const packagesJson = JSON.stringify(updatedPackages);
+  setSettingsState({ packages: packagesJson });
+  renderPackageSettings();
+
+  const apiBase = (typeof API_BASE !== 'undefined' ? API_BASE : null)
+    || window.APP_CONFIG?.API_BASE
+    || (window.location.hostname === 'localhost' ? 'http://localhost:5000/api' : 'https://oracatapi.onrender.com/api');
+
+  try {
+    const res = await fetch(`${apiBase}/settings`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ settings: { packages: packagesJson } }),
+    });
+    if (!res.ok) throw new Error((await res.json()).error || 'บันทึกล้มเหลว');
+    showToast(successMessage, 'success');
+    return true;
+  } catch (e) {
+    setSettingsState({ packages: previous });
+    renderPackageSettings();
+    showToast('บันทึกแพ็กเกจล้มเหลว: ' + e.message, 'error');
+    return false;
+  }
 }
 
 function activeJobTypes(selectedType = '') {
@@ -797,7 +1044,8 @@ function refreshJobTypeViews() {
 }
 
 async function persistJobTypeSettings(nextTypes, successMessage) {
-  if (!window.firebaseData?.isReady?.()) {
+  const token = localStorage.getItem('manager_token');
+  if (!token) {
     showToast('กรุณา Login ก่อนแก้ไขประเภทงาน', 'error');
     return false;
   }
@@ -806,8 +1054,17 @@ async function persistJobTypeSettings(nextTypes, successMessage) {
   setSettingsState({ jobTypes: nextTypes });
   refreshJobTypeViews();
 
+  const apiBase = (typeof API_BASE !== 'undefined' ? API_BASE : null)
+    || window.APP_CONFIG?.API_BASE
+    || (window.location.hostname === 'localhost' ? 'http://localhost:5000/api' : 'https://oracatapi.onrender.com/api');
+
   try {
-    await window.firebaseData.saveSettings({ jobTypes: appSettingsState.jobTypes });
+    const res = await fetch(`${apiBase}/settings`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ settings: { job_types: JSON.stringify(appSettingsState.jobTypes) } }),
+    });
+    if (!res.ok) throw new Error((await res.json()).error || 'บันทึกล้มเหลว');
     showToast(successMessage || 'บันทึกประเภทงานแล้ว ✓', 'success');
     return true;
   } catch (e) {
@@ -903,29 +1160,53 @@ function saveSettings() {
 }
 
 async function saveBusinessInfo() {
-  if (!window.firebaseData?.isReady?.()) {
+  const token = localStorage.getItem('manager_token');
+  if (!token) {
     showToast('กรุณา Login ก่อนบันทึกการตั้งค่า', 'error');
     return;
   }
   const previous = getSettings();
   const s = getSettings();
-  s.studioName = document.getElementById('settingName').value.trim();
+  s.studioName = document.getElementById('settingName')?.value.trim() || '';
   s.phone = document.getElementById('settingPhone')?.value.trim() || '';
   s.email = document.getElementById('settingEmail')?.value.trim() || '';
   s.facebook = document.getElementById('settingFacebook')?.value.trim() || '';
   s.bookingTerms = document.getElementById('settingBookingTerms')?.value.trim() || '';
-  s.hourRate = Number(document.getElementById('settingHourRate').value) || 1500;
+  s.hourRate = Number(document.getElementById('settingHourRate')?.value) || 1500;
+  s.welcome_title = document.getElementById('settingWelcomeTitle')?.value.trim() || '';
+  s.welcome_subtitle = document.getElementById('settingWelcomeSubtitle')?.value.trim() || '';
+  s.pricing_title = document.getElementById('settingPricingTitle')?.value.trim() || '';
+  s.pricing_subtitle = document.getElementById('settingPricingSubtitle')?.value.trim() || '';
+  s.promptpay_id = document.getElementById('settingPromptPay')?.value.trim() || '';
+  s.thunder_token = document.getElementById('settingThunderToken')?.value.trim() || '';
+
   setSettingsState(s);
+
+  const apiBase = (typeof API_BASE !== 'undefined' ? API_BASE : null)
+    || window.APP_CONFIG?.API_BASE
+    || (window.location.hostname === 'localhost' ? 'http://localhost:5000/api' : 'https://oracatapi.onrender.com/api');
+
   try {
-    await window.firebaseData.saveSettings({
-      studioName: s.studioName,
-      phone: s.phone,
-      email: s.email,
-      facebook: s.facebook,
-      bookingTerms: s.bookingTerms,
-      hourRate: s.hourRate,
+    const res = await fetch(`${apiBase}/settings`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ settings: {
+        studio_name: s.studioName,
+        business_phone: s.phone,
+        business_email: s.email,
+        business_facebook: s.facebook,
+        booking_terms: s.bookingTerms,
+        hourly_rate: s.hourRate,
+        welcome_title: s.welcome_title,
+        welcome_subtitle: s.welcome_subtitle,
+        pricing_title: s.pricing_title,
+        pricing_subtitle: s.pricing_subtitle,
+        promptpay_id: s.promptpay_id,
+        thunder_token: s.thunder_token,
+      }}),
     });
-    showToast('บันทึกข้อมูลธุรกิจไป Firebase แล้ว ✓', 'success');
+    if (!res.ok) throw new Error((await res.json()).error || 'บันทึกล้มเหลว');
+    showToast('บันทึกข้อมูลธุรกิจไปยังระบบฐานข้อมูลแล้ว ✓', 'success');
   } catch (e) {
     setSettingsState(previous, { replace: true });
     loadSettingsForm();
@@ -1022,10 +1303,30 @@ async function createBookingSheetFromSettings() {
 }
 
 function applyCloudSettings(settings) {
-  setSettingsState(settings || {}, { replace: true });
+  // Normalize Express API snake_case field names → internal camelCase state
+  const raw = settings || {};
+  const normalized = {
+    ...raw,
+    studioName: raw.studioName || raw.studio_name || '',
+    phone: raw.phone || raw.business_phone || '',
+    email: raw.email || raw.business_email || '',
+    facebook: raw.facebook || raw.business_facebook || '',
+    bookingTerms: raw.bookingTerms || raw.booking_terms || '',
+    hourRate: raw.hourRate || raw.hourly_rate || 1500,
+    welcome_title: raw.welcome_title || '',
+    welcome_subtitle: raw.welcome_subtitle || '',
+    pricing_title: raw.pricing_title || '',
+    pricing_subtitle: raw.pricing_subtitle || '',
+    promptpay_id: raw.promptpay_id || '',
+    thunder_token: raw.thunder_token || '',
+    packages: raw.packages || '[]',
+    jobTypes: raw.jobTypes || (raw.job_types ? (() => { try { return JSON.parse(raw.job_types); } catch(e) { return []; } })() : []),
+  };
+  setSettingsState(normalized, { replace: true });
 
   const input = document.getElementById('settingSheetId');
   if (input) input.value = appSettingsState.sheetId || '';
+
   const nameInput = document.getElementById('settingName');
   if (nameInput) nameInput.value = appSettingsState.studioName || '';
   const phoneInput = document.getElementById('settingPhone');
@@ -1038,6 +1339,20 @@ function applyCloudSettings(settings) {
   if (bookingTermsInput) bookingTermsInput.value = appSettingsState.bookingTerms || '';
   const hourRateInput = document.getElementById('settingHourRate');
   if (hourRateInput) hourRateInput.value = appSettingsState.hourRate || '';
+
+  // Expose additional settings
+  const wtInput = document.getElementById('settingWelcomeTitle');
+  if (wtInput) wtInput.value = appSettingsState.welcome_title || '';
+  const wsInput = document.getElementById('settingWelcomeSubtitle');
+  if (wsInput) wsInput.value = appSettingsState.welcome_subtitle || '';
+  const prTitleInput = document.getElementById('settingPricingTitle');
+  if (prTitleInput) prTitleInput.value = appSettingsState.pricing_title || '';
+  const prSubInput = document.getElementById('settingPricingSubtitle');
+  if (prSubInput) prSubInput.value = appSettingsState.pricing_subtitle || '';
+  const ppInput = document.getElementById('settingPromptPay');
+  if (ppInput) ppInput.value = appSettingsState.promptpay_id || '';
+  const ttInput = document.getElementById('settingThunderToken');
+  if (ttInput) ttInput.value = appSettingsState.thunder_token || '';
   renderJobTypeSettings();
   renderJobTypeSelect();
   updateSheetSyncInfo();
@@ -1045,6 +1360,7 @@ function applyCloudSettings(settings) {
   updateSidebarUserProfile();
   renderQueueTable();
   updateDashboard();
+  renderPackageSettings();
   if (document.getElementById('page-revenue')?.classList.contains('active')) renderRevenue();
   if (document.getElementById('page-documents')?.classList.contains('active')) refreshBookingDocumentJobs();
   routeInitialLanding();
@@ -1057,27 +1373,17 @@ function setLastSheetSyncInfo(info) {
 }
 
 function updateSheetSyncInfo() {
-  const isLoggedIn = Boolean(window.firebaseData?.isReady?.());
-  const info = appSettingsState.lastSheetSync || null;
-  const settings = getSettings();
-  const text = !isLoggedIn
-    ? 'Login ก่อนเพื่อโหลดข้อมูล Google Sheets ของ user นี้'
-    : info
-      ? `ล่าสุด: ${info.title} / แท็บ ${info.tab} (ID: ${compactId(info.id)})`
-      : 'ยังไม่เคย Sync ไป Google Sheets';
+  const isLoggedIn = Boolean(localStorage.getItem('manager_token'));
 
   const settingsEl = document.getElementById('sheetSyncInfo');
-  if (settingsEl) settingsEl.textContent = text;
+  if (settingsEl) settingsEl.textContent = 'ระบบนี้ใช้ Supabase ไม่ต้อง Sync Google Sheets';
 
   const sheetSettingEl = document.getElementById('sheetSettingInfo');
   if (sheetSettingEl) {
-    sheetSettingEl.textContent = !isLoggedIn
-      ? 'Login ก่อนเพื่อโหลด Sheet ID ของ user นี้'
-      : settings.sheetId
-        ? `Sheet ID ที่ใช้งาน: ${compactId(settings.sheetId)}`
-        : 'ต้องตั้งค่า Google Sheet ID หรือกดสร้าง Booking Sheet ก่อนเริ่มใช้งาน';
+    sheetSettingEl.textContent = isLoggedIn
+      ? 'ระบบเชื่อมต่อ Supabase — ไม่ต้องตั้งค่า Google Sheet'
+      : 'กรุณา Login ก่อนใช้งาน';
   }
-  window.firebaseData?.updateAuthUI?.();
   updateSheetSetupUI();
 }
 

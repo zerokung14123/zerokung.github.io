@@ -91,11 +91,6 @@
       </button>
     </nav>
     <div class="sidebar-footer">
-      <button class="google-auth-btn" id="googleAuthBtn" type="button">
-        <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" width="18"/>
-        <span id="googleAuthLabel">เชื่อมต่อ Google Calendar</span>
-      </button>
-      <div class="sync-status" id="syncStatus">● ยังไม่ได้เชื่อมต่อ Calendar</div>
       <div class="app-version">Oracat Manager v0.3.1</div>
       <div class="footer-links">
         <a href="index.html">เว็บไซต์</a>
@@ -545,6 +540,19 @@
                 <div class="field-help">ถ้าไม่กรอก ระบบจะใช้ค่าเริ่มต้นนี้ในส่วนเงื่อนไขและข้อกำหนด</div>
               </div>
               <button class="btn-primary" type="button" id="saveBusinessInfoBtn" style="margin-top: 14px;">บันทึกข้อมูลธุรกิจ</button>
+            </div>
+
+            <!-- Google Calendar Connection Card -->
+            <div class="card" style="margin-top: 20px;">
+              <div class="card-header"><h3>การเชื่อมต่อ Google Calendar</h3></div>
+              <div class="settings-hint">เชื่อมต่อกับบัญชี Google เพื่อซิงก์กำหนดส่งงานและคิวถ่ายภาพขึ้นปฏิทิน (Google Calendar) โดยอัตโนมัติ</div>
+              <div style="margin-top: 14px; display: flex; flex-direction: column; gap: 12px; align-items: flex-start;">
+                <button class="google-auth-btn" id="googleAuthBtn" type="button" style="width: auto; padding: 10px 18px; display: flex; align-items: center; gap: 8px; border-radius: 6px; border: 1px solid var(--border-gold); background: #050505; color: var(--text); font-weight: bold; cursor: pointer;">
+                  <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" width="18"/>
+                  <span id="googleAuthLabel">เชื่อมต่อ Google Calendar</span>
+                </button>
+                <div class="sync-status" id="syncStatus" style="font-size: 0.85rem; font-weight: 600;">● ยังไม่ได้เชื่อมต่อ Calendar</div>
+              </div>
             </div>
           </div>
 

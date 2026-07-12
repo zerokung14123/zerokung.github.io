@@ -1,470 +1,384 @@
 // ============================================================
-//  firebase-data.js — Firebase Auth + Firestore realtime data
+//  firebase-data.js — Mock Firebase Data Layer using SQL Backend
 // ============================================================
 
-import { initializeApp, getApps } from 'https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js';
-import {
-  initializeAppCheck,
-  ReCaptchaEnterpriseProvider,
-} from 'https://www.gstatic.com/firebasejs/12.13.0/firebase-app-check.js';
-import {
-  getAuth,
-  GoogleAuthProvider,
-  signInWithCustomToken,
-  signInWithPopup,
-  signOut as firebaseSignOut,
-  onAuthStateChanged,
-  setPersistence,
-  browserLocalPersistence,
-} from 'https://www.gstatic.com/firebasejs/12.13.0/firebase-auth.js';
-import {
-  getFirestore,
-  collection,
-  doc,
-  setDoc,
-  deleteDoc,
-  writeBatch,
-  query,
-  orderBy,
-  onSnapshot,
-} from 'https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore.js';
+const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+  ? 'http://localhost:5000/api' 
+  : 'https://oracatapi.onrender.com/api';
 
-const REQUIRED_FIREBASE_KEYS = ['apiKey', 'authDomain', 'projectId', 'appId'];
-
-const firebaseState = {
-  app: null,
-  auth: null,
-  db: null,
-  appCheck: null,
+const state = {
   user: null,
-  configured: false,
-  snapshotLoaded: false,
-  unsubscribeJobs: null,
-  unsubscribeSettings: null,
+  configured: true,
 };
 
-function firebaseConfig() {
-  return window.CONFIG?.FIREBASE_CONFIG || {};
-}
-
 function isFirebaseConfigured() {
-  const cfg = firebaseConfig();
-  return REQUIRED_FIREBASE_KEYS.every(key => String(cfg[key] || '').trim());
-}
-
-function appCheckSiteKey() {
-  return String(window.CONFIG?.FIREBASE_APP_CHECK_SITE_KEY || '').trim();
+  return true;
 }
 
 function isAppCheckConfigured() {
-  return Boolean(appCheckSiteKey());
+  return false;
 }
 
-function emailName(user = firebaseState.user) {
-  const email = String(user?.email || '').trim().toLowerCase();
-  const localPart = email ? email.split('@')[0] : '';
-  const fallback = String(user?.uid || 'user').replace(/^google:/, '');
-  return String(localPart || fallback || 'user')
-    .replace(/[^a-z0-9_-]+/gi, '-')
-    .replace(/^-+|-+$/g, '')
-    .toLowerCase() || 'user';
+function isFirebaseReady() {
+  return !!localStorage.getItem('manager_token');
 }
 
-function getJobsCollectionName(user = firebaseState.user) {
-  return `${emailName(user)}-jobs`;
-}
-
-function getJobsCollection() {
-  if (!firebaseState.db || !firebaseState.user) {
-    throw new Error('Firebase ยังไม่ได้เชื่อมต่อ');
-  }
-  return collection(firebaseState.db, 'users', firebaseState.user.uid, getJobsCollectionName());
-}
-
-function getSettingsDoc() {
-  if (!firebaseState.db || !firebaseState.user) {
-    throw new Error('Firebase ยังไม่ได้เชื่อมต่อ');
-  }
-  return doc(firebaseState.db, 'users', firebaseState.user.uid, 'settings', 'app');
-}
-
-function normalizeJob(job) {
-  const now = new Date().toISOString();
-  return stripUndefined({
-    ...job,
-    id: String(job?.id || window.generateUniqueId('job')),
-    client: String(job?.client || ''),
-    type: String(job?.type || 'custom'),
-    date: String(job?.date || ''),
-    startTime: String(job?.startTime || ''),
-    endTime: String(job?.endTime || ''),
-    location: String(job?.location || ''),
-    price: nonNegativeNumber(job?.price),
-    deposit: nonNegativeNumber(job?.deposit),
-    depositRefunded: Boolean(job?.depositRefunded),
-    isCash: Boolean(job?.isCash),
-    status: String(job?.status || 'pending'),
-    note: String(job?.note || ''),
-    images: normalizeJobImages(job?.images),
-    bookingDocument: normalizeBookingDocument(job?.bookingDocument),
-    createdAt: job?.createdAt || now,
-    updatedAt: job?.updatedAt || now,
-  });
-}
-
-function normalizeJobImages(images) {
-  return (Array.isArray(images) ? images : []).map(image => stripUndefined({
-    id: String(image?.id || window.generateUniqueId('img')),
-    name: String(image?.name || ''),
-    mimeType: String(image?.mimeType || ''),
-    size: nonNegativeNumber(image?.size),
-    dataUrl: String(image?.dataUrl || ''),
-    webViewLink: String(image?.webViewLink || ''),
-    webContentLink: String(image?.webContentLink || ''),
-    uploadedAt: image?.uploadedAt || image?.storedAt || '',
-  })).filter(image => image.id && (image.dataUrl || image.webViewLink || image.webContentLink));
-}
-
-function normalizeBookingDocument(documentData) {
-  if (!documentData || typeof documentData !== 'object') return null;
-  return stripUndefined({
-    dataUrl: String(documentData.dataUrl || ''),
-    fileName: String(documentData.fileName || ''),
-    mimeType: String(documentData.mimeType || 'image/jpeg'),
-    size: nonNegativeNumber(documentData.size),
-    createdAt: documentData.createdAt || '',
-    template: String(documentData.template || ''),
-  });
-}
-
-function stripUndefined(value) {
-  return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined));
-}
-
-function normalizeJobTypes(jobTypes) {
-  return (Array.isArray(jobTypes) ? jobTypes : []).map(type => stripUndefined({
-    id: String(type?.id || '').trim(),
-    label: String(type?.label || '').trim(),
-    active: type?.active !== false,
-    system: Boolean(type?.system),
-    deliveryDays: Math.max(0, Math.round(nonNegativeNumber(type?.deliveryDays, 30))),
-  })).filter(type => type.id && type.label);
-}
-
-function refreshLocalViews() {
-  window.refreshAppData?.();
-}
-
-function subscribeJobs() {
-  if (firebaseState.unsubscribeJobs) firebaseState.unsubscribeJobs();
-  firebaseState.snapshotLoaded = false;
-
-  const jobsQuery = query(getJobsCollection(), orderBy('date', 'desc'));
-  firebaseState.unsubscribeJobs = onSnapshot(jobsQuery, async snapshot => {
+function currentUser() {
+  if (!state.user) {
     try {
-      const jobs = snapshot.docs.map(item => normalizeJob({ id: item.id, ...item.data() }));
-      firebaseState.snapshotLoaded = true;
-      window.setJobsFromFirebase?.(jobs);
-      refreshLocalViews();
-      updateFirebaseAuthUI(firebaseState.user);
-    } catch (e) {
-      console.error('Firebase snapshot handling failed:', e);
-      showToast('โหลดข้อมูล Firebase ไม่สำเร็จ: ' + (e.message || e), 'error');
-    }
-  }, error => {
-    console.error('Firebase snapshot failed:', error);
-    showToast('Firebase sync ผิดพลาด: ' + (error.message || error), 'error');
-  });
-}
-
-function subscribeUserSettings() {
-  if (firebaseState.unsubscribeSettings) firebaseState.unsubscribeSettings();
-
-  firebaseState.unsubscribeSettings = onSnapshot(getSettingsDoc(), snapshot => {
-    window.applyCloudSettings?.(snapshot.exists() ? (snapshot.data() || {}) : {});
-  }, error => {
-    console.error('Firebase settings snapshot failed:', error);
-    showToast('โหลดการตั้งค่า Firebase ไม่สำเร็จ: ' + (error.message || error), 'error');
-  });
-}
-
-function updateFirebaseAuthUI(user = firebaseState.user) {
-  const btn = document.getElementById('googleAuthBtn');
-  const label = document.getElementById('googleAuthLabel');
-  const status = document.getElementById('syncStatus');
-
-  if (!isFirebaseConfigured()) {
-    if (status) {
-      status.textContent = '● Firebase ยังไม่ได้ตั้งค่า';
-      status.className = 'sync-status';
-    }
-    window.updateSidebarUserProfile?.();
-    window.updateLoginGate?.(null, { message: 'Firebase ยังไม่ได้ตั้งค่า จึงยังไม่สามารถเข้าสู่ระบบได้' });
-    return;
+      state.user = JSON.parse(localStorage.getItem('manager_user') || 'null');
+    } catch (_) {}
   }
+  return state.user;
+}
 
-  if (user) {
-    if (label) label.textContent = 'ออกจากระบบ';
-    if (btn) btn.style.borderColor = 'rgba(94,184,106,0.4)';
-    if (status) {
-      status.textContent = '● เข้าสู่ระบบแล้ว';
-      status.className = 'sync-status connected';
-    }
+function getJobsCollectionName() {
+  return 'oracat-jobs';
+}
+
+function updateFirebaseAuthUI(user) {
+  const activeUser = user !== undefined ? user : currentUser();
+
+  if (activeUser) {
     window.updateSidebarUserProfile?.();
-    window.updateLoginGate?.(user);
+    window.updateLoginGate?.({ email: activeUser.username, displayName: activeUser.displayName });
   } else {
-    if (label) label.textContent = 'เข้าสู่ระบบ Google';
-    if (btn) btn.style.borderColor = '';
-    if (status) {
-      status.textContent = '● ยังไม่ได้เข้าสู่ระบบ';
-      status.className = 'sync-status';
-    }
     window.updateSidebarUserProfile?.();
     window.updateLoginGate?.(null);
   }
 }
 
-async function signInFirebaseWithCustomToken(customToken) {
-  if (!firebaseState.auth) {
-    window.__lastGoogleLoginError = 'Firebase client ยังไม่พร้อม: กรุณาตรวจ Firebase config';
-    showToast('กรุณาใส่ Firebase config ใน js/config.js ก่อน', 'error');
-    return null;
-  }
-  if (!customToken) {
-    window.__lastGoogleLoginError = 'ไม่พบ Firebase custom token จาก backend';
-    showToast('ไม่พบ Firebase custom token จาก backend', 'error');
-    return null;
-  }
+// Map SQLite booking data model to frontend Job model
+function mapBookingToJob(b) {
+  return {
+    id: String(b.id),
+    client: b.client_name || '',
+    type: b.job_type || 'custom',
+    date: b.event_date || '',
+    startTime: b.start_time || '',
+    endTime: b.end_time || '',
+    location: b.location || '',
+    price: Number(b.price) || 0,
+    deposit: Number(b.deposit) || 0,
+    depositRefunded: false,
+    isCash: Boolean(b.is_cash), // mapping isCash
+    status: b.status || 'pending',
+    note: b.note || '',
+    images: b.slip_image ? [{ id: 'img_1', name: 'slip.jpg', mimeType: 'image/jpeg', size: 100, dataUrl: b.slip_image }] : [],
+    bookingDocument: b.slip_image ? { dataUrl: b.slip_image, fileName: 'booking_slip.jpg' } : null,
+    createdAt: b.created_at || '',
+    updatedAt: b.updated_at || '',
+  };
+}
+
+// Fetch jobs (approved bookings) from backend Express API
+async function refreshJobs() {
+  const token = localStorage.getItem('manager_token');
+  if (!token) return;
 
   try {
-    const result = await signInWithCustomToken(firebaseState.auth, customToken);
-    window.__lastGoogleLoginError = '';
-    return result.user;
-  } catch (e) {
-    console.error('Firebase custom-token sign-in failed:', e);
-    const message = 'เข้าสู่ระบบ Firebase จาก backend ไม่สำเร็จ: ' + (e.message || e);
-    window.__lastGoogleLoginError = message;
-    showToast(message, 'error');
-    return null;
+    const res = await fetch(`${API_BASE}/bookings`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!res.ok) {
+      if (res.status === 401) {
+        signOutFirebase();
+        return;
+      }
+      throw new Error('Failed to load bookings');
+    }
+    const bookings = await res.json();
+    
+    // In our SQLite backend, approved bookings act as active jobs in the queue.
+    // Let's filter bookings by status to match. Wait, the queue can show: pending, confirmed, done, cancelled.
+    // Let's map all bookings (excluding rejected) to jobs:
+    const activeBookings = bookings.filter(b => b.status !== 'rejected');
+    const jobs = activeBookings.map(mapBookingToJob);
+    
+    window.setJobsFromFirebase?.(jobs);
+  } catch (err) {
+    console.error('Failed to refresh jobs:', err);
   }
 }
 
-async function signInFirebaseWithGooglePopup(options = {}) {
-  if (!firebaseState.auth) {
-    showToast('กรุณาใส่ Firebase config ใน js/config.js ก่อน', 'error');
-    return null;
-  }
-
-  const provider = new GoogleAuthProvider();
-  const scopes = String(options.scopes || window.CONFIG?.SCOPES || '')
-    .split(/\s+/)
-    .map(scope => scope.trim())
-    .filter(scope => scope.startsWith('https://'));
-  scopes.forEach(scope => provider.addScope(scope));
-  provider.setCustomParameters({ prompt: 'select_account' });
+// Fetch settings from backend Express API
+async function loadSettings() {
+  const token = localStorage.getItem('manager_token');
+  if (!token) return;
 
   try {
-    const result = await signInWithPopup(firebaseState.auth, provider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    return {
-      user: result.user,
-      accessToken: credential?.accessToken || '',
+    const res = await fetch(`${API_BASE}/settings`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!res.ok) throw new Error('Failed to load settings');
+    const s = await res.json();
+
+    let jobTypesList = [];
+    try {
+      if (s.job_types) jobTypesList = JSON.parse(s.job_types);
+    } catch (_) {}
+
+    const mapped = {
+      sheetId: s.google_sheet_id || '',
+      studioName: s.studio_name || '',
+      phone: s.business_phone || '',
+      email: s.business_email || '',
+      facebook: s.business_facebook || '',
+      bookingTerms: s.booking_terms || '',
+      hourRate: Number(s.hourly_rate) || 1500,
+      jobTypes: jobTypesList.map(t => ({
+        id: t.id,
+        label: t.label,
+        active: true,
+        system: false,
+        deliveryDays: t.days || 30,
+        deposit: t.deposit || 1000,
+      })),
+      lastSheetSync: null,
+      taxPaidReminders: [],
+      packages: s.packages || '[]',
+      // Extra values to fill settings form inputs
+      promptpay_id: s.promptpay_id || '',
+      thunder_token: s.thunder_token || '',
+      welcome_title: s.welcome_title || '',
+      welcome_subtitle: s.welcome_subtitle || '',
+      pricing_title: s.pricing_title || '',
+      pricing_subtitle: s.pricing_subtitle || '',
     };
-  } catch (e) {
-    console.error('Firebase Google popup sign-in failed:', e);
-    showToast('เข้าสู่ระบบ Google ไม่สำเร็จ: ' + getFirebaseAuthErrorMessage(e), 'error');
-    return null;
+
+    window.applyCloudSettings?.(mapped);
+    
+    // Fill custom inputs if they exist
+    const ppEl = document.getElementById('settingPromptPay');
+    if (ppEl) ppEl.value = mapped.promptpay_id;
+    const ttEl = document.getElementById('settingThunderToken');
+    if (ttEl) ttEl.value = mapped.thunder_token;
+    const wtEl = document.getElementById('settingWelcomeTitle');
+    if (wtEl) wtEl.value = mapped.welcome_title;
+    const wsEl = document.getElementById('settingWelcomeSubtitle');
+    if (wsEl) wsEl.value = mapped.welcome_subtitle;
+
+  } catch (err) {
+    console.error('Failed to load settings:', err);
   }
 }
 
-function getFirebaseAuthErrorMessage(error) {
-  const code = String(error?.code || '');
-  const message = String(error?.message || error || '');
-  const host = window.location.hostname || 'localhost';
-
-  if (code === 'auth/unauthorized-domain' || message.includes('auth/unauthorized-domain')) {
-    return `Firebase ยังไม่อนุญาตโดเมนนี้ (${host}) ให้เพิ่ม "${host}" ใน Firebase Console > Authentication > Settings > Authorized domains แล้วลองใหม่`;
+async function initFirebaseData() {
+  const token = localStorage.getItem('manager_token');
+  if (!token) {
+    updateFirebaseAuthUI(null);
+    return false;
   }
 
-  if (code === 'auth/popup-blocked') {
-    return 'เบราว์เซอร์บล็อก popup กรุณาอนุญาต popup สำหรับเว็บนี้แล้วลองใหม่';
+  const user = currentUser();
+  updateFirebaseAuthUI(user);
+
+  // Initial load
+  await loadSettings();
+  await refreshJobs();
+
+  // Load bookings list (from our custom bookings tab)
+  if (typeof window.refreshBookingsTab === 'function') {
+    window.refreshBookingsTab();
+  }
+  
+  // Load gallery list (from our custom gallery tab)
+  if (typeof window.refreshGalleryTab === 'function') {
+    window.refreshGalleryTab();
   }
 
-  if (code === 'auth/popup-closed-by-user') {
-    return 'ปิดหน้าต่าง Google Login ก่อนทำรายการเสร็จ';
-  }
+  return true;
+}
 
-  return message || 'ไม่ทราบสาเหตุ';
+async function loginAdmin(username, password) {
+  const res = await fetch(`${API_BASE}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password })
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(error.error || 'ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง');
+  }
+  const data = await res.json();
+  localStorage.setItem('manager_token', data.token);
+  localStorage.setItem('manager_user', JSON.stringify(data.user));
+  state.user = data.user;
+  await initFirebaseData();
+  return data.user;
+}
+
+async function loginAdminGoogle(credential) {
+  const res = await fetch(`${API_BASE}/auth/google`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ credential })
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(error.error || 'ยืนยัน Google Token ไม่สำเร็จ');
+  }
+  const data = await res.json();
+  if (data.token) {
+    localStorage.setItem('manager_token', data.token);
+    localStorage.setItem('manager_user', JSON.stringify({
+      id: data.user.sub,
+      username: data.user.email,
+      displayName: data.user.name,
+    }));
+    state.user = {
+      id: data.user.sub,
+      username: data.user.email,
+      displayName: data.user.name,
+    };
+    await initFirebaseData();
+    return state.user;
+  } else {
+    throw new Error('ไม่สามารถเข้าสู่ระบบผ่าน Google ได้: หลังบ้านไม่ได้ออกโทเค็นให้');
+  }
 }
 
 async function signOutFirebase() {
-  if (firebaseState.unsubscribeJobs) {
-    firebaseState.unsubscribeJobs();
-    firebaseState.unsubscribeJobs = null;
+  localStorage.removeItem('manager_token');
+  localStorage.removeItem('manager_user');
+  state.user = null;
+  
+  if (typeof window.clearJobsCache === 'function') {
+    window.clearJobsCache();
   }
-  if (firebaseState.unsubscribeSettings) {
-    firebaseState.unsubscribeSettings();
-    firebaseState.unsubscribeSettings = null;
-  }
-  firebaseState.user = null;
-  firebaseState.snapshotLoaded = false;
-  window.clearAppData?.({ clearPersistent: true, quiet: true });
-  window.clearGoogleAccessToken?.();
-  if (firebaseState.auth) await firebaseSignOut(firebaseState.auth);
+  
   updateFirebaseAuthUI(null);
-  showToast('ออกจากระบบ Firebase แล้ว');
+  showToast('ออกจากระบบเรียบร้อยแล้ว');
 }
 
 async function saveJobToFirebase(job) {
-  if (!isFirebaseReady()) return false;
-  const data = normalizeJob(job);
-  await setDoc(doc(getJobsCollection(), data.id), data, { merge: true });
+  const token = localStorage.getItem('manager_token');
+  if (!token) return false;
+
+  const timeStr = `${job.startTime || '09:00'} - ${job.endTime || '13:00'}`;
+  const slipImage = job.images?.[0]?.dataUrl || '';
+
+  const mappedBooking = {
+    client_name: job.client || '',
+    job_type: job.type || 'custom',
+    event_date: job.date || '',
+    event_time: timeStr,
+    start_time: job.startTime || '',
+    end_time: job.endTime || '',
+    location: job.location || '',
+    price: Number(job.price) || 0,
+    deposit: Number(job.deposit) || 0,
+    note: job.note || '',
+    status: job.status || 'pending',
+    slip_image: slipImage,
+  };
+
+  // Check if job.id is numeric or start with 'job_'
+  const isNew = !job.id || job.id.startsWith('job_');
+  const url = isNew ? `${API_BASE}/bookings` : `${API_BASE}/bookings/${job.id}`;
+  const method = isNew ? 'POST' : 'PUT';
+
+  const res = await fetch(url, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify(mappedBooking)
+  });
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to save job');
+  }
+  
+  await refreshJobs();
   return true;
 }
 
 async function saveJobsToFirebase(jobs) {
-  if (!isFirebaseReady()) return false;
-  const cleanJobs = (Array.isArray(jobs) ? jobs : []).map(normalizeJob);
-  if (!cleanJobs.length) return true;
-
-  let batch = writeBatch(firebaseState.db);
-  let opCount = 0;
-  for (const job of cleanJobs) {
-    batch.set(doc(getJobsCollection(), job.id), job, { merge: true });
-    opCount++;
-    if (opCount === 450) {
-      await batch.commit();
-      batch = writeBatch(firebaseState.db);
-      opCount = 0;
-    }
+  for (const job of jobs) {
+    await saveJobToFirebase(job);
   }
-  if (opCount > 0) await batch.commit();
   return true;
 }
 
 async function deleteJobFromFirebase(jobId) {
-  if (!isFirebaseReady()) return false;
-  await deleteDoc(doc(getJobsCollection(), String(jobId)));
+  const token = localStorage.getItem('manager_token');
+  if (!token) return false;
+
+  if (jobId.startsWith('job_')) return true; // skip deleting unsaved local drafts
+
+  const res = await fetch(`${API_BASE}/bookings/${jobId}`, {
+    method: 'DELETE',
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to delete job');
+  }
+
+  await refreshJobs();
   return true;
 }
 
 async function saveSettingsToFirebase(settings) {
-  if (!isFirebaseReady()) return false;
-  const data = { updatedAt: new Date().toISOString() };
-  if (Object.prototype.hasOwnProperty.call(settings || {}, 'sheetId')) {
-    data.sheetId = String(settings.sheetId || '').trim();
-  }
-  if (Object.prototype.hasOwnProperty.call(settings || {}, 'studioName')) {
-    data.studioName = String(settings.studioName || '').trim();
-  }
-  if (Object.prototype.hasOwnProperty.call(settings || {}, 'phone')) {
-    data.phone = String(settings.phone || '').trim();
-  }
-  if (Object.prototype.hasOwnProperty.call(settings || {}, 'email')) {
-    data.email = String(settings.email || '').trim();
-  }
-  if (Object.prototype.hasOwnProperty.call(settings || {}, 'facebook')) {
-    data.facebook = String(settings.facebook || '').trim();
-  }
-  if (Object.prototype.hasOwnProperty.call(settings || {}, 'bookingTerms')) {
-    data.bookingTerms = String(settings.bookingTerms || '').trim();
-  }
-  if (Object.prototype.hasOwnProperty.call(settings || {}, 'hourRate')) {
-    data.hourRate = nonNegativeNumber(settings.hourRate, 1500);
-  }
-  if (Object.prototype.hasOwnProperty.call(settings || {}, 'jobTypes')) {
-    data.jobTypes = normalizeJobTypes(settings.jobTypes);
-  }
-  if (Object.prototype.hasOwnProperty.call(settings || {}, 'lastSheetSync')) {
-    data.lastSheetSync = settings.lastSheetSync || null;
-  }
-  if (Object.prototype.hasOwnProperty.call(settings || {}, 'taxPaidReminders')) {
-    data.taxPaidReminders = Array.from(new Set((Array.isArray(settings.taxPaidReminders) ? settings.taxPaidReminders : [])
-      .map(key => String(key || '').trim())
-      .filter(Boolean)));
-  }
-  await setDoc(getSettingsDoc(), data, { merge: true });
-  return true;
-}
+  const token = localStorage.getItem('manager_token');
+  if (!token) return false;
 
-function isFirebaseReady() {
-  return Boolean(firebaseState.configured && firebaseState.db && firebaseState.user);
-}
-
-async function initFirebaseData() {
-  firebaseState.configured = isFirebaseConfigured();
-  updateFirebaseAuthUI(null);
-  if (!firebaseState.configured) return false;
-
-  firebaseState.app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig());
-if (isAppCheckConfigured()) {
-  try {
-    firebaseState.appCheck = initializeAppCheck(firebaseState.app, {
-      provider: new ReCaptchaEnterpriseProvider(appCheckSiteKey()),
-      isTokenAutoRefreshEnabled: true,
-    });
-  } catch (e) {
-    console.warn('Firebase App Check setup failed:', e);
-  }
-}
-  firebaseState.auth = getAuth(firebaseState.app);
-  firebaseState.db = getFirestore(firebaseState.app);
-
-  try {
-    await setPersistence(firebaseState.auth, browserLocalPersistence);
-  } catch (e) {
-    console.warn('Firebase persistence setup failed:', e);
+  const backendSettings = {};
+  if (settings.studioName !== undefined) backendSettings.studio_name = settings.studioName;
+  if (settings.phone !== undefined) backendSettings.business_phone = settings.phone;
+  if (settings.email !== undefined) backendSettings.business_email = settings.email;
+  if (settings.facebook !== undefined) backendSettings.business_facebook = settings.facebook;
+  if (settings.bookingTerms !== undefined) backendSettings.booking_terms = settings.bookingTerms;
+  if (settings.hourRate !== undefined) backendSettings.hourly_rate = settings.hourRate;
+  if (settings.sheetId !== undefined) backendSettings.google_sheet_id = settings.sheetId;
+  
+  if (settings.jobTypes !== undefined) {
+    const list = settings.jobTypes.map(t => ({
+      id: t.id,
+      label: t.label,
+      days: t.deliveryDays || 30,
+      deposit: t.deposit || 1000,
+    }));
+    backendSettings.job_types = JSON.stringify(list);
   }
 
-  onAuthStateChanged(firebaseState.auth, async user => {
-    if (firebaseState.unsubscribeJobs) {
-      firebaseState.unsubscribeJobs();
-      firebaseState.unsubscribeJobs = null;
-    }
-    if (firebaseState.unsubscribeSettings) {
-      firebaseState.unsubscribeSettings();
-      firebaseState.unsubscribeSettings = null;
-    }
+  // Handle PromptPay & Thunder token if they are passed
+  if (settings.promptpay_id !== undefined) backendSettings.promptpay_id = settings.promptpay_id;
+  if (settings.thunder_token !== undefined) backendSettings.thunder_token = settings.thunder_token;
+  if (settings.welcome_title !== undefined) backendSettings.welcome_title = settings.welcome_title;
+  if (settings.welcome_subtitle !== undefined) backendSettings.welcome_subtitle = settings.welcome_subtitle;
+  if (settings.packages !== undefined) backendSettings.packages = settings.packages;
+  if (settings.pricing_title !== undefined) backendSettings.pricing_title = settings.pricing_title;
+  if (settings.pricing_subtitle !== undefined) backendSettings.pricing_subtitle = settings.pricing_subtitle;
 
-    if (!user) {
-      firebaseState.user = null;
-      firebaseState.snapshotLoaded = false;
-      localStorage.setItem('oracat_logged_in', 'false');
-      localStorage.removeItem('oracat_last_activity');
-      window.clearAppData?.({ clearPersistent: true, quiet: true });
-      updateFirebaseAuthUI(null);
-      return;
-    }
-
-    // Check if session has expired based on inactivity
-    const lastActive = Number(localStorage.getItem('oracat_last_activity') || 0);
-    const isExpired = lastActive && (Date.now() - lastActive > 15 * 60 * 1000);
-    if (isExpired) {
-      firebaseState.user = null;
-      firebaseState.snapshotLoaded = false;
-      localStorage.setItem('oracat_logged_in', 'false');
-      localStorage.removeItem('oracat_last_activity');
-      window.clearAppData?.({ clearPersistent: true, quiet: true });
-      updateFirebaseAuthUI(null);
-      if (firebaseState.auth) await firebaseSignOut(firebaseState.auth);
-      return;
-    }
-
-    firebaseState.user = user;
-    localStorage.setItem('oracat_logged_in', 'true');
-    localStorage.setItem('oracat_last_activity', Date.now().toString());
-    updateFirebaseAuthUI(user);
-    subscribeUserSettings();
-    subscribeJobs();
+  const res = await fetch(`${API_BASE}/settings`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify({ settings: backendSettings })
   });
 
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({}));
+    throw new Error(error.error || 'Failed to save settings');
+  }
+
+  await loadSettings();
   return true;
 }
 
 window.firebaseData = {
   init: initFirebaseData,
-  signInWithCustomToken: signInFirebaseWithCustomToken,
-  signInWithGooglePopup: signInFirebaseWithGooglePopup,
+  signInWithCustomToken: () => Promise.resolve(null),
+  signInWithGooglePopup: () => Promise.resolve(null),
+  login: loginAdmin,
+  loginGoogle: loginAdminGoogle,
   signOut: signOutFirebase,
   saveJob: saveJobToFirebase,
   saveJobs: saveJobsToFirebase,
@@ -473,9 +387,12 @@ window.firebaseData = {
   isConfigured: isFirebaseConfigured,
   isAppCheckConfigured,
   isReady: isFirebaseReady,
-  currentUser: () => firebaseState.user,
+  currentUser,
   jobsCollectionName: getJobsCollectionName,
   updateAuthUI: updateFirebaseAuthUI,
+  refreshJobs,
+  loadSettings,
+  API_BASE,
 };
 
 window.initFirebaseData = initFirebaseData;

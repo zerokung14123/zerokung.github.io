@@ -1,119 +1,40 @@
-// Google OAuth v3 code-flow helper.
-// The browser receives short-lived access tokens only. Refresh token handling
-// stays in the local backend as an HttpOnly cookie.
+// Google OAuth v3 Token Flow helper.
+// Connects directly to Google Calendar and Google Sheets APIs client-side.
 const googleOAuthV3 = (() => {
   const STATE_KEY = 'fotoManagerV3GoogleSession';
   const ACTIVITY_KEY = 'fotoManagerV3LastActiveAt';
   const GIS_SCRIPT_ID = 'gisCodeClientScript';
-  let codeClient = null;
+  let tokenClient = null;
   let session = readSession();
-  let refreshTimer = null;
-
-  function config() {
-    return window.CONFIG || {};
-  }
-
-  function endpoint() {
-    return String(config().GOOGLE_OAUTH_TOKEN_ENDPOINT || '').trim();
-  }
-
-  function clientId() {
-    return String(config().GOOGLE_OAUTH_CLIENT_ID || '').trim();
-  }
-
-  function isConfigured() {
-  return hasBackendCodeFlow();
-}
-
-  function hasBackendCodeFlow() {
-    return Boolean(clientId() && endpoint());
-  }
-
-  function hasStaticFirebaseAuth() {
-    return Boolean(!endpoint() && window.firebaseData?.signInWithGooglePopup);
-  }
-
-  function configErrorMessage() {
-    const runtime = window.runtimeConfigState || {};
-    if (runtime.protocol === 'file:') {
-      return 'กรุณาเปิดเว็บผ่าน npm run local แล้วเข้า http://localhost:5500 ไม่ใช่ file://';
-    }
-    if (runtime.attempted && !runtime.loaded) {
-      return `โหลด config จาก backend ไม่สำเร็จ: ${runtime.error || 'unknown error'} กรุณารัน npm run local แล้วเข้า http://localhost:5500`;
-    }
-    return 'ยังไม่ได้ตั้งค่า Google Login: เปิด Firebase Authentication > Google provider และใส่ Firebase Web config ใน js/config.js';
-  }
-
-  function oauthErrorMessage(error) {
-    const message = error?.message || String(error || 'Unknown error');
-    if (message.includes('GOOGLE_OAUTH_CLIENT_SECRET')) {
-      return 'Google OAuth ล้มเหลว: backend OAuth secret ยังไม่ได้ตั้งค่า';
-    }
-    if (message.includes('GOOGLE_OAUTH_CLIENT_ID')) {
-      return 'Google OAuth ล้มเหลว: Google OAuth Client ID ยังไม่ได้ตั้งค่า';
-    }
-    return 'Google OAuth ล้มเหลว: ' + message;
-  }
-
-  function setLastLoginError(error) {
-    const message = oauthErrorMessage(error);
-    window.__lastGoogleLoginError = message;
-    return message;
-  }
-
-  function clearLastLoginError() {
-    window.__lastGoogleLoginError = '';
-  }
 
   function readSession() {
     try {
-      return JSON.parse(localStorage.getItem(STATE_KEY) || '{}') || {};
+      return JSON.parse(localStorage.getItem(STATE_KEY)) || {};
     } catch {
       return {};
     }
   }
 
-  function writeSession(nextSession) {
-    session = nextSession || {};
+  function writeSession(data) {
+    session = data || {};
     if (session.accessToken) {
-      localStorage.setItem(STATE_KEY, JSON.stringify({
-        expiresAt: session.expiresAt || 0,
-        user: session.user || null,
-      }));
+      localStorage.setItem(STATE_KEY, JSON.stringify(session));
     } else {
       localStorage.removeItem(STATE_KEY);
     }
-    scheduleRefresh();
+  }
+
+  function isConfigured() {
+    return true; // Statically available via Client ID
   }
 
   function markActivity() {
-    localStorage.setItem(ACTIVITY_KEY, String(Date.now()));
-  }
-
-  function idleLimitMs() {
-    return Number(config().GOOGLE_SESSION_IDLE_LIMIT_MS) || 5 * 60 * 1000;
+    localStorage.setItem(ACTIVITY_KEY, Date.now().toString());
   }
 
   function isIdleExpired() {
-    const lastActiveAt = Number(localStorage.getItem(ACTIVITY_KEY) || 0);
-    return Boolean(lastActiveAt && Date.now() - lastActiveAt > idleLimitMs());
-  }
-
-  function enforceIdleTimeout() {
-    if (isIdleExpired()) {
-      logout({ quiet: true });
-      showToast('ไม่ได้ใช้งานเกิน 5 นาที กรุณา Login ใหม่', 'error');
-      return false;
-    }
-    return true;
-  }
-
-  function bindActivityTracking() {
-    ['click', 'keydown', 'touchstart', 'mousemove'].forEach(eventName => {
-      window.addEventListener(eventName, markActivity, { passive: true });
-    });
-    if (!localStorage.getItem(ACTIVITY_KEY)) markActivity();
-    window.setInterval(enforceIdleTimeout, 60 * 1000);
+    const lastActive = Number(localStorage.getItem(ACTIVITY_KEY) || 0);
+    return lastActive && (Date.now() - lastActive > 24 * 60 * 60 * 1000); // 24 hours idle limit
   }
 
   function loadGisScript() {
@@ -138,206 +59,53 @@ const googleOAuthV3 = (() => {
     });
   }
 
-  async function ensureCodeClient() {
-    if (!hasBackendCodeFlow()) {
-      throw new Error(configErrorMessage());
-    }
+  async function ensureTokenClient() {
     await loadGisScript();
-    if (codeClient) return codeClient;
+    if (tokenClient) return tokenClient;
 
-    codeClient = google.accounts.oauth2.initCodeClient({
-      client_id: clientId(),
-      scope: config().SCOPES,
-      ux_mode: 'popup',
-      include_granted_scopes: true,
-      callback: async response => {
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: '629659023739-3s6q51voaeb9koebh7rm63l1c3dihdi1.apps.googleusercontent.com',
+      scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/calendar',
+      callback: (response) => {
         if (response.error) {
-          const message = setLastLoginError(response.error);
-          window.updateLoginGate?.(null, { message });
-          showToast(message, 'error');
+          showToast('Google integration failed: ' + response.error, 'error');
           return;
         }
-        try {
-          await exchangeCode(response.code);
-        } catch (error) {
-          console.error('Google OAuth exchange failed:', error);
-          const message = setLastLoginError(error);
-          window.updateLoginGate?.(null, { message });
-          showToast(message, 'error');
-        }
-      },
-      error_callback: error => {
-        console.error('Google OAuth popup failed:', error);
-        const message = error?.type || error?.message || 'popup ถูกปิดหรือถูกบล็อก';
-        const loginMessage = setLastLoginError(message);
-        window.updateLoginGate?.(null, { message: loginMessage });
-        showToast(loginMessage, 'error');
-      },
-    });
-    return codeClient;
-  }
-
-  async function postTokenAction(body) {
-    if (!hasBackendCodeFlow()) {
-      throw new Error('OAuth backend endpoint ไม่ได้เปิดใช้งานใน static hosting mode');
-    }
-
-    const response = await fetch(endpoint(), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Requested-With': 'XmlHttpRequest',
-      },
-      credentials: 'include',
-      body: JSON.stringify(body),
-    });
-
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      if ([404, 405].includes(response.status) && !payload.error) {
-        throw new Error(`OAuth backend endpoint ${endpoint()} ใช้งานไม่ได้ (${response.status}) กรุณารัน npm run local แล้วเปิด http://localhost:5500`);
+        const token = response.access_token;
+        window.applyGoogleAccessToken?.(token, { source: 'oauth-token-client' });
+        
+        writeSession({
+          accessToken: token,
+          expiresAt: Date.now() + Number(response.expires_in || 3600) * 1000,
+          user: { email: 'Connected', displayName: 'Google Sync' }
+        });
+        
+        markActivity();
+        window.updateAuthUI?.();
+        showToast('เชื่อมต่อ Google สำเร็จ ✓', 'success');
       }
-      throw new Error(payload.error || `OAuth request failed (${response.status})`);
-    }
-    return payload;
-  }
-
-  async function exchangeCode(code) {
-    if (!code) throw new Error('Missing authorization code');
-    markActivity();
-    clearLastLoginError();
-    const payload = await postTokenAction({
-      action: 'exchange',
-      code,
-      origin: window.location.origin,
     });
-    await applyTokenPayload(payload);
-    showToast('เชื่อมต่อ Google v3 สำเร็จ', 'success');
-    return payload;
-  }
-
-  async function applyTokenPayload(payload) {
-    if (!payload?.access_token) {
-      throw new Error('OAuth backend did not return an access token');
-    }
-
-    const expiresIn = Number(payload.expires_in || 3600);
-    window.applyGoogleAccessToken?.(payload.access_token, { source: 'oauth-v3' });
-
-    if (!payload.firebase_custom_token) {
-      throw new Error('OAuth backend did not return a Firebase custom token');
-    }
-    if (!window.firebaseData?.signInWithCustomToken) {
-      throw new Error('Firebase client is not ready for custom token sign-in');
-    }
-
-    const firebaseUser = await window.firebaseData.signInWithCustomToken(payload.firebase_custom_token);
-    if (!firebaseUser) {
-      throw new Error(window.__lastGoogleLoginError || 'Firebase custom token sign-in did not return a user');
-    }
-
-    writeSession({
-      accessToken: payload.access_token,
-      expiresAt: Date.now() + Math.max(30, expiresIn - 60) * 1000,
-      user: {
-        email: firebaseUser.email || payload.user?.email || '',
-        displayName: firebaseUser.displayName || payload.user?.name || '',
-        uid: firebaseUser.uid || payload.firebase_uid || '',
-      },
-    });
-    updateLabel();
-  }
-
-  async function loginWithFirebasePopup() {
-    const result = await window.firebaseData?.signInWithGooglePopup?.({ scopes: config().SCOPES });
-    if (!result?.user) return false;
-
-    if (result.accessToken) {
-      window.applyGoogleAccessToken?.(result.accessToken, { source: 'firebase-google-popup' });
-      writeSession({
-        accessToken: result.accessToken,
-        expiresAt: Date.now() + 50 * 60 * 1000,
-        user: {
-          email: result.user.email || '',
-          displayName: result.user.displayName || '',
-        },
-      });
-    }
-    updateLabel();
-    showToast('เข้าสู่ระบบ Google สำเร็จ', 'success');
-    return true;
+    return tokenClient;
   }
 
   async function login() {
-    if (!enforceIdleTimeout()) return false;
     try {
-      clearLastLoginError();
-      if (hasStaticFirebaseAuth()) {
-        return await loginWithFirebasePopup();
-      }
-      const client = await ensureCodeClient();
-      client.requestCode();
+      const client = await ensureTokenClient();
+      client.requestAccessToken({ prompt: 'consent' });
       return true;
     } catch (error) {
-      console.error('Google OAuth login failed:', error);
-      const message = setLastLoginError(error);
-      window.updateLoginGate?.(null, { message });
-      showToast(message, 'error');
-      return false;
-    }
-  }
-
-  async function refresh() {
-    if (!isConfigured() || !enforceIdleTimeout()) return false;
-    if (hasStaticFirebaseAuth()) {
-      updateLabel();
-      return Boolean(window.firebaseData?.currentUser?.());
-    }
-    try {
-      const payload = await postTokenAction({ action: 'refresh' });
-      await applyTokenPayload(payload);
-      return true;
-    } catch (error) {
-      writeSession({});
-      updateLabel();
+      console.error('Google login failed:', error);
+      showToast('เชื่อมต่อ Google ล้มเหลว: ' + error.message, 'error');
       return false;
     }
   }
 
   async function logout(options = {}) {
-    if (refreshTimer) {
-      window.clearTimeout(refreshTimer);
-      refreshTimer = null;
-    }
     writeSession({});
     localStorage.removeItem(ACTIVITY_KEY);
     window.clearGoogleAccessToken?.({ revoke: false });
-    if (window.firebaseData?.currentUser?.()) {
-      await window.firebaseData.signOut();
-    }
-    window.clearAppData?.({ clearPersistent: true, quiet: true });
-    if (hasBackendCodeFlow()) {
-      try {
-        await postTokenAction({ action: 'logout' });
-      } catch {
-        // Ignore logout network failures; local session is already cleared.
-      }
-    }
-    updateLabel();
-    if (!options.quiet) showToast('ออกจากระบบ Google v3 แล้ว');
-  }
-
-  function scheduleRefresh() {
-    if (refreshTimer) {
-      window.clearTimeout(refreshTimer);
-      refreshTimer = null;
-    }
-    if (!session?.expiresAt || !session?.user) return;
-
-    const delay = Math.max(60 * 1000, session.expiresAt - Date.now() - 2 * 60 * 1000);
-    refreshTimer = window.setTimeout(() => {
-      if (!isIdleExpired()) refresh();
-    }, delay);
+    window.updateAuthUI?.();
+    if (!options.quiet) showToast('ยกเลิกการเชื่อมต่อ Google แล้ว');
   }
 
   async function toggle() {
@@ -348,27 +116,26 @@ const googleOAuthV3 = (() => {
     await login();
   }
 
-  function updateLabel() {
-    window.firebaseData?.updateAuthUI?.();
+  async function refresh() {
+    if (isIdleExpired()) {
+      await logout({ quiet: true });
+      return false;
+    }
+    return Boolean(session?.accessToken);
   }
 
   async function init() {
-    bindActivityTracking();
-    if (!isConfigured() || isIdleExpired()) {
-      enforceIdleTimeout();
+    if (isIdleExpired() || !session?.accessToken) {
+      await logout({ quiet: true });
       return false;
     }
-
-    if (hasStaticFirebaseAuth()) {
-      updateLabel();
-      return Boolean(window.firebaseData?.currentUser?.());
+    if (session.expiresAt && session.expiresAt < Date.now()) {
+      await logout({ quiet: true });
+      return false;
     }
-
-    if (session?.expiresAt && session.expiresAt > Date.now()) {
-      updateLabel();
-      scheduleRefresh();
-    }
-    return refresh();
+    window.applyGoogleAccessToken?.(session.accessToken, { source: 'init-session' });
+    window.updateAuthUI?.();
+    return true;
   }
 
   return {
@@ -379,6 +146,8 @@ const googleOAuthV3 = (() => {
     refresh,
     isConfigured,
     markActivity,
+    readSession,
+    writeSession
   };
 })();
 

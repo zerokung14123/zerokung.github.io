@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupStaticEventHandlers();
   initTheme();
   startInactivityCheck();
+  window.updateAuthUI?.();
 
   // Nav buttons
   document.querySelectorAll('.nav-btn').forEach(btn => {

@@ -214,50 +214,48 @@ function clearGoogleAccessToken() {
    ────────────────────────────────────────────────────────── */
 async function handleGoogleAuth() {
   if (!window.googleOAuthV3) {
-    showToast('Google OAuth v3 ยังไม่พร้อมใช้งาน', 'error');
+    showToast('Google OAuth ยังไม่พร้อมใช้งาน', 'error');
     return;
   }
-  if (!isGoogleOAuthV3Mode()) {
-    showToast(googleOAuthConfigMessage(), 'error');
-    return;
+  const isConnected = Boolean(window.googleOAuthV3.readSession?.()?.accessToken);
+  if (isConnected) {
+    await window.googleOAuthV3.logout();
+  } else {
+    await window.googleOAuthV3.login();
   }
-  if (isSignedIn || window.firebaseData?.currentUser?.()) await window.googleOAuthV3.logout();
-  else await window.googleOAuthV3.login();
+  updateAuthUI();
 }
 
 function signIn() {
-  if (!window.googleOAuthV3 || !isGoogleOAuthV3Mode()) {
-    showToast(googleOAuthConfigMessage(), 'error');
-    return;
+  if (window.googleOAuthV3) {
+    window.googleOAuthV3.login();
   }
-  window.googleOAuthV3.login();
 }
 
 function signOut() {
-  if (window.googleOAuthV3) window.googleOAuthV3.logout();
-  else clearGoogleAccessToken();
+  if (window.googleOAuthV3) {
+    window.googleOAuthV3.logout();
+  } else {
+    clearGoogleAccessToken();
+  }
 }
 
 function updateAuthUI(signedIn) {
-  if (window.firebaseData?.isConfigured?.()) {
-    const user = window.firebaseData?.currentUser?.();
-    if (user || !signedIn) {
-      window.firebaseData?.updateAuthUI?.(user || null);
-      return;
-    }
-  }
+  const isGoogleConnected = Boolean(window.googleOAuthV3?.readSession?.()?.accessToken || signedIn || accessToken);
   const btn = document.getElementById('googleAuthBtn');
   const label = document.getElementById('googleAuthLabel');
   const status = document.getElementById('syncStatus');
-  if (signedIn) {
-    label.textContent = 'ออกจากระบบ';
+  if (!btn || !label || !status) return;
+
+  if (isGoogleConnected) {
+    label.textContent = 'ยกเลิกการเชื่อมต่อ Calendar';
     btn.style.borderColor = 'rgba(94,184,106,0.4)';
-    status.textContent = '● เชื่อมต่อแล้ว';
+    status.textContent = '● เชื่อมต่อ Calendar แล้ว';
     status.className = 'sync-status connected';
   } else {
-    label.textContent = 'เข้าสู่ระบบ Google';
+    label.textContent = 'เชื่อมต่อ Google Calendar';
     btn.style.borderColor = '';
-    status.textContent = '● ยังไม่ได้เข้าสู่ระบบ';
+    status.textContent = '● ยังไม่ได้เชื่อมต่อ Calendar';
     status.className = 'sync-status';
   }
 }
@@ -680,3 +678,5 @@ window.checkSpreadsheetExists = checkSpreadsheetExists;
 window.createBookingSpreadsheet = createBookingSpreadsheet;
 window.applyGoogleAccessToken = applyGoogleAccessToken;
 window.clearGoogleAccessToken = clearGoogleAccessToken;
+window.updateAuthUI = updateAuthUI;
+window.handleGoogleAuth = handleGoogleAuth;

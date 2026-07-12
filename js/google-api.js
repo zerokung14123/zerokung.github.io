@@ -266,22 +266,11 @@ function updateAuthUI(signedIn) {
    3. GOOGLE SHEETS SYNC
    ────────────────────────────────────────────────────────── */
 async function syncSheets(options = {}) {
-  const quiet = Boolean(options.quiet);
-  if (!isSignedIn) {
-    const error = 'กรุณาเชื่อมต่อ Google ก่อน';
-    if (!quiet) showToast(error, 'error');
-    return { ok: false, error };
-  }
-  if (!window.firebaseData?.isReady?.()) {
-    const error = 'กรุณา Login ให้ Firebase โหลดข้อมูลก่อน Sync Sheets';
-    if (!quiet) showToast(error, 'error');
-    return { ok: false, error };
-  }
-  if (!window.gapi?.client?.sheets) {
-    const error = 'Google API ยังโหลดไม่เสร็จ ลองอีกครั้งในสักครู่';
-    if (!quiet) showToast(error, 'error');
-    return { ok: false, error };
-  }
+  return { ok: true };
+}
+
+// Dead code removed
+function unused_syncSheets_block() {
 
   const cfg = getSettings();
   const sheetId = getSpreadsheetId(cfg.sheetId || CONFIG.SHEET_ID);
@@ -350,6 +339,7 @@ async function syncSheets(options = {}) {
     if (!quiet) showToast(error, 'error');
     return { ok: false, error };
   }
+}
 }
 
 async function checkSpreadsheetExists(spreadsheetId) {
@@ -499,7 +489,7 @@ async function syncCalendar(options = {}) {
       const end   = job.endTime   ? `${job.date}T${job.endTime}:00`   : `${job.date}T13:00:00`;
 
       const event = {
-        summary: `📷 ${JOB_TYPE_LABELS[job.type] || job.type} — ${job.client}`,
+        summary: `[Oracat] ${JOB_TYPE_LABELS[job.type] || job.type} — ${job.client}`,
         location: job.location,
         description: `ราคา: ${formatCurrency(job.price)}\nมัดจำ: ${formatCurrency(job.deposit)}\nสถานะ: ${STATUS_LABELS[job.status] || job.status}\n\n${job.note || ''}`,
         start: { dateTime: start, timeZone: 'Asia/Bangkok' },

@@ -71,13 +71,10 @@ function setupStaticEventHandlers() {
   bindClick('menuToggleBtn', () => toggleSidebar());
   bindClick('syncAllBtn', () => syncAll());
   bindClick('openJobModalBtn', () => openJobModal());
-  bindClick('syncSheetsBtn', () => syncSheets());
   bindClick('syncCalendarBtn', () => syncCalendar());
   bindClick('dashboardTaxPaidButton', () => markDashboardTaxPaid());
-  bindClick('createBookingSheetBtn', () => createBookingSheetFromSettings());
   bindClick('bookingPreviewBtn', () => renderBookingDocument());
   bindClick('bookingDownloadBtn', () => downloadBookingDocument());
-  bindClick('saveSheetSettingsBtn', () => saveGoogleSheetSettings());
   bindClick('saveBusinessInfoBtn', () => saveBusinessInfo());
   bindClick('addJobTypeBtn', () => addJobTypeSetting());
   bindClick('addPackageBtn', () => addPackageSetting());
@@ -750,14 +747,12 @@ function loadSettingsForm() {
   const facebookInput = document.getElementById('settingFacebook');
   const bookingTermsInput = document.getElementById('settingBookingTerms');
   const hourRateInput = document.getElementById('settingHourRate');
-  const sheetIdInput = document.getElementById('settingSheetId');
   if (nameInput) nameInput.value = s.studioName || '';
   if (phoneInput) phoneInput.value = s.phone || '';
   if (emailInput) emailInput.value = s.email || '';
   if (facebookInput) facebookInput.value = s.facebook || '';
   if (bookingTermsInput) bookingTermsInput.value = s.bookingTerms || '';
   if (hourRateInput) hourRateInput.value = s.hourRate || '';
-  if (sheetIdInput) sheetIdInput.value = s.sheetId || '';
 
   // Expose additional settings
   const wtInput = document.getElementById('settingWelcomeTitle');
@@ -1214,93 +1209,7 @@ async function saveBusinessInfo() {
   }
 }
 
-async function saveGoogleSheetSettings() {
-  if (!window.firebaseData?.isReady?.()) {
-    showToast('กรุณา Login ก่อนบันทึก Google Sheet ID', 'error');
-    return;
-  }
-  const input = document.getElementById('settingSheetId');
-  const sheetId = getSpreadsheetId(input?.value || '');
-  if (!sheetId) {
-    showToast('กรุณาใส่ Google Sheet ID ก่อน', 'error');
-    return;
-  }
 
-  const previous = getSettings();
-  const settings = getSettings();
-  settings.sheetId = sheetId;
-  setSettingsState(settings);
-
-  try {
-    await window.firebaseData.saveSettings({ sheetId });
-    updateSheetSyncInfo();
-    scheduleSheetAccessCheck();
-    enforceSheetSetupGate();
-    showPage('dashboard', { quietGate: true });
-    showToast('บันทึก Google Sheet ID ไป Firebase แล้ว ✓', 'success');
-  } catch (e) {
-    setSettingsState(previous, { replace: true });
-    loadSettingsForm();
-    console.error('Save Sheet ID to Firebase failed:', e);
-    showToast('บันทึก Sheet ID ไป Firebase ไม่สำเร็จ: ' + (e.message || e), 'error');
-  }
-}
-
-async function createBookingSheetFromSettings() {
-  if (!window.firebaseData?.isReady?.()) {
-    showToast('กรุณา Login ก่อนสร้าง Google Sheet', 'error');
-    return;
-  }
-
-  const existingId = configuredSheetId();
-  if (existingId && sheetAccessState.status !== 'missing') {
-    await verifyCurrentSheetAccess();
-    if (configuredSheetId() && sheetAccessState.status !== 'missing') {
-      showToast('มี Google Sheet ID ที่ใช้งานอยู่แล้ว ระบบจะให้สร้างใหม่เมื่อ ID เดิมตรวจไม่พบ', 'error');
-      return;
-    }
-  }
-
-  const button = document.getElementById('createBookingSheetBtn');
-  if (button) button.dataset.busy = '1';
-  updateSheetSetupUI();
-
-  try {
-    if (!window.createBookingSpreadsheet) {
-      throw new Error('Google Sheets API ยังไม่พร้อมใช้งาน');
-    }
-    const result = await window.createBookingSpreadsheet({ title: 'Booking' });
-    const sheetId = getSpreadsheetId(result?.id || result?.spreadsheetId || '');
-    if (!sheetId) throw new Error('สร้าง Sheet แล้วแต่ไม่พบ spreadsheetId');
-
-    const previous = getSettings();
-    const input = document.getElementById('settingSheetId');
-    if (input) input.value = sheetId;
-    setSettingsState({ sheetId });
-
-    try {
-      await window.firebaseData.saveSettings({ sheetId });
-    } catch (error) {
-      setSettingsState(previous, { replace: true });
-      loadSettingsForm();
-      throw error;
-    }
-
-    sheetAccessState.id = sheetId;
-    sheetAccessState.status = 'exists';
-    sheetAccessState.message = result.title || 'Booking';
-    updateSheetSyncInfo();
-    updateSheetSetupUI();
-    showPage('dashboard', { quietGate: true });
-    showToast('สร้าง Booking Sheet และบันทึก Sheet ID แล้ว ✓', 'success');
-  } catch (error) {
-    console.error('Create Booking Sheet failed:', error);
-    showToast('สร้าง Booking Sheet ไม่สำเร็จ: ' + (error.message || error), 'error');
-  } finally {
-    if (button) button.dataset.busy = '0';
-    updateSheetSetupUI();
-  }
-}
 
 function applyCloudSettings(settings) {
   // Normalize Express API snake_case field names → internal camelCase state
@@ -1323,9 +1232,6 @@ function applyCloudSettings(settings) {
     jobTypes: raw.jobTypes || (raw.job_types ? (() => { try { return JSON.parse(raw.job_types); } catch(e) { return []; } })() : []),
   };
   setSettingsState(normalized, { replace: true });
-
-  const input = document.getElementById('settingSheetId');
-  if (input) input.value = appSettingsState.sheetId || '';
 
   const nameInput = document.getElementById('settingName');
   if (nameInput) nameInput.value = appSettingsState.studioName || '';
@@ -1420,7 +1326,6 @@ function clearAppData(options = {}) {
     'filterMonth',
     'filterJobType',
     'filterStatus',
-    'settingSheetId',
     'settingName',
     'settingPhone',
     'settingEmail',
